@@ -23,10 +23,15 @@ pub fn main() !void {
         .command = .{ .tversion = .{ .msize = std.math.maxInt(u32), .version = proto  } },
     };
     try msg.dump(stream.writer());
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const msg2 = try parse(arena.allocator(), stream.reader());
+    std.debug.print("msg2: {any}\n", .{ msg2 });
 }
 
 
-pub fn parse(allocator: mem.Allocator, in_reader: std.fs.File.Reader) !Message {
+pub fn parse(allocator: mem.Allocator, in_reader: anytype) !Message {
     const size = try in_reader.readIntLittle(u32);
     var limited_reader = std.io.limitedReader(in_reader, size - 4);
     const reader = limited_reader.reader();
@@ -119,22 +124,17 @@ pub const Message = struct {
     command: Command,
 
     pub fn size(self: Message) !usize {
-        std.debug.print("In Message.size\n", .{});
-        defer std.debug.print("Returning from Message.size\n", .{});
         return 4 + 1 + 2 + try self.command.size();
     }
 
     pub fn dump(self: Message, writer: anytype) !void {
-        std.debug.print("In Message.dump\n", .{});
         const msg_size = try self.size();
-        std.debug.print("Message size: {d}\n", .{ msg_size });
         if (msg_size > math.maxInt(u32)) {
             return error.MessageTooLarge;
         }
         try writer.writeIntLittle(u32, @intCast(u32, msg_size));
         try writer.writeByte(@enumToInt(self.command));
         try writer.writeIntLittle(u16, self.tag);
-        std.log.debug("Dumping command\n", .{});
         try self.command.dump(writer);
     }
 
@@ -172,19 +172,16 @@ pub const Message = struct {
         rwstat = 127,
 
         pub fn size(self: Command) !usize {
-            std.debug.print("In Command.size\n", .{});
             var counting = io.countingWriter(io.null_writer);
             try self.dump(counting.writer());
             return counting.bytes_written;
         }
 
         pub fn dump(self: Command, writer: anytype) !void {
-            std.debug.print("In Command.dump\n", .{});
             switch (self) {
                 .terror, .rflush, .rclunk, .rremove, .rwstat => {},
                 inline else => |val| try val.dump(writer),
             }
-            std.debug.print("Returning from Command.dump\n", .{});
         }
 
         pub const Tversion = struct {
@@ -201,7 +198,6 @@ pub const Message = struct {
             }
 
             pub fn dump(self: Tversion, writer: anytype) !void {
-                std.debug.print("In Tversion.dump\n", .{});
                 try writer.writeIntLittle(u32, self.msize);
                 try dumpWireString(self.version, writer);
             }
