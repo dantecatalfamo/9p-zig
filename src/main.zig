@@ -49,6 +49,12 @@ pub fn parse(allocator: mem.Allocator, in_reader: std.fs.File.Reader) !Message {
     };
 }
 
+pub fn dump(message: Message, writer: std.fs.File.Writer) !void {
+    _ = writer;
+    _ = message;
+
+}
+
 pub fn parseWireString(allocator: mem.Allocator, data: anytype) ![]const u8 {
     const size = try data.readIntLittle(u16);
     return try data.readAllAlloc(allocator, size);
@@ -115,117 +121,151 @@ const Message = struct {
     command: Command,
 
     pub const Command = union(enum(u8)) {
-        Tversion: struct {
-            msize: u32,
-            version: []const u8
-        } = 100,
-        Rversion: struct {
-            msize: u32,
-            version: []const u8
-        } = 101,
+        tversion: Tversion = 100,
+        rversion: Rversion = 101,
+        tauth: Tauth = 102,
+        rauth: Rauth = 103,
+        tattach: Tattach = 104,
+        rattach: Rattach = 105,
+        /// Not allowed
+        terror = 106,
+        rerror: Rerror = 107,
+        tflush: Tflush = 108,
+        rflush = 109,
+        twalk: Twalk = 110,
+        rwalk: Rwalk = 111,
+        topen: Topen = 112,
+        ropen: Ropen = 113,
+        tcreate: Tcreate = 114,
+        rcreate: Rcreate = 115,
+        tread: Tread = 116,
+        rread: Rread = 117,
+        twrite: Twrite = 118,
+        rwrite: Rwrite = 119,
+        tclunk: Tclunk = 120,
+        rclunk = 121,
+        tremove: Tremove = 122,
+        rremove = 123,
+        tstat: Tstat = 124,
+        rstat: Rstat = 125,
+        twstat: Twstat = 126,
+        rwstat = 127,
 
-        Tauth: struct {
+        pub const Tversion = struct {
+            msize: u32,
+            version: []const u8,
+        };
+
+        pub const Rversion = struct {
+            msize: u32,
+            version: []const u8
+        };
+
+        pub const Tauth = struct {
             afid: u32,
             uname: []const u8,
             aname: []const u8
-        } = 102,
-        Rauth: struct {
-            aqid: Qid
-        } = 103,
+        };
 
-        Tattach: struct {
+        pub const Rauth = struct {
+            aqid: Qid
+        };
+
+        pub const Tattach = struct {
             fid: u32,
             afid: u32,
             uname: []const u8,
             aname: []const u8
-        } = 104,
-        Rattach: struct {
+        };
+
+        pub const Rattach = struct {
             qid: Qid
-        } = 105,
+        };
 
-        /// Not allowed
-        Terror = 106,
-        Rerror: struct {
+        pub const Rerror = struct {
             ename: []const u8
-        } = 107,
+        };
 
-        Tflush: struct {
+        pub const Tflush = struct {
             oldtag: u16
-        } = 108,
-        Rflush = 109,
+        };
 
-        Twalk: struct {
+        pub const Twalk = struct {
             fid: u32,
             newfid: u32,
             nwname: u16,
             wname: [][]const u8
-        } = 110,
-        Rwalk: struct {
+        };
+
+        pub const Rwalk = struct {
             nwqid: u16,
             wqid: []Qid
-        } = 111,
+        };
 
-        Topen: struct {
+        pub const Topen = struct {
             fid:  u32,
             mode: u8
-        } = 112,
-        Ropen: struct {
+        };
+
+        pub const Ropen = struct {
             qid: Qid,
             iounit: u32
-        } = 113,
+        };
 
-        Tcreate: struct {
+        pub const Tcreate = struct {
             fid: u32,
             name: []const u8,
             perm: u32,
             mode: u8
-        } = 114,
-        Rcreate: struct {
+        };
+
+        pub const Rcreate = struct {
             qid: Qid,
             iounit: u32,
-        } = 115,
+        };
 
-        Tread: struct {
+        pub const Tread = struct {
             fid: u32,
             offset: u64,
             count: u32
-        } = 116,
-        Rread: struct {
+        };
+
+        pub const Rread = struct {
             count: u32,
             data: []const u8
-        } = 117,
+        };
 
-        Twrite: struct {
+        pub const Twrite = struct {
             fid: u32,
             offset: u64,
             count: u32,
             data: []const u8
-        } = 118,
-        Rwrite: struct {
+        };
+
+        pub const Rwrite = struct {
             count: u32
-        } = 119,
+        };
 
-        Tclunk: struct {
+        pub const Tclunk = struct {
             fid: u32,
-        } = 120,
-        Rclunk = 121,
-        Tremove: struct {
-            fid: u32
-        } = 122,
-        Rremove = 123,
+        };
 
-        Tstat: struct {
+        pub const Tremove = struct {
             fid: u32
-        } = 124,
-        Rstat: struct {
+        };
+
+        pub const Tstat = struct {
+            fid: u32
+        };
+
+        pub const Rstat = struct {
             stat: Stat
-        } = 125,
+        };
 
-        Twstat: struct {
+        pub const Twstat = struct {
             fid: u32,
             stat: Stat
-        } = 126,
-        Rwstat = 127
+        };
     };
 };
 
