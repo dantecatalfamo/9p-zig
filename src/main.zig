@@ -227,6 +227,16 @@ pub const Message = struct {
             uname: []const u8,
             aname: []const u8,
 
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tauth = .{
+                        .afid = try reader.readIntLittle(u32),
+                        .uname = try parseWireString(allocator, reader),
+                        .aname = try parseWireString(allocator, reader),
+                    }
+                };
+            }
+
             pub fn dump(self: Tauth, writer: anytype) !void {
                 try writer.writeIntLittle(u32, self.afid);
                 try dumpWireString(self.uname, writer);
@@ -237,8 +247,16 @@ pub const Message = struct {
         pub const Rauth = struct {
             aqid: Qid,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rauth = .{
+                        .aqid = try Qid.parse(reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rauth, writer: anytype) !void {
+                try self.aqid.dump(writer);
             }
         };
 
@@ -419,22 +437,36 @@ pub const Message = struct {
 const Qid = struct {
     path: u64,
     vers: u32,
-    qtype: QType
-};
+    qtype: QType,
 
-const QType = enum(u8) {
-    /// type bit for directories
-    dir = 0x80,
-    /// type bit for append only files
-    append = 0x40,
-    /// type bit for exclusive use files
-    excl = 0x20,
-    /// type bit for mounted channel
-    mount = 0x10,
-    /// type bit for authentication file
-    auth = 0x08,
-    /// plain file
-    file = 0x00
+    pub fn parse(reader: anytype) !Qid {
+        return Qid{
+            .path = try reader.readIntLittle(u64),
+            .vers = try reader.readIntLittle(u32),
+            .qtype = @intToEnum(QType, try reader.readByte()),
+        };
+    }
+
+    pub fn dump(self: Qid, writer: FileWriter) !void {
+        try writer.writeIntLittle(u64, self.path);
+        try writer.writeIntLittle(u32, self.vers);
+        try writer.writeByte(@enumToInt(self.qtype));
+    }
+
+    const QType = enum(u8) {
+        /// type bit for directories
+        dir = 0x80,
+        /// type bit for append only files
+        append = 0x40,
+        /// type bit for exclusive use files
+        excl = 0x20,
+        /// type bit for mounted channel
+        mount = 0x10,
+        /// type bit for authentication file
+        auth = 0x08,
+        /// plain file
+        file = 0x00
+    };
 };
 
 const OpenMode = enum(u16) {
