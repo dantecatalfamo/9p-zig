@@ -6,6 +6,8 @@ const testing = std.testing;
 const FileReader = std.fs.File.Reader;
 const FileWriter = std.fs.File.Writer;
 
+const proto = "9P2000";
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -14,6 +16,8 @@ pub fn main() !void {
     const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", 5640);
     defer stream.close();
 
+    std.debug.print("Connected\n", .{});
+
     const msg = Message{
         .tag = NOTAG,
         .command = .{ .tversion = .{ .msize = std.math.maxInt(u32), .version = proto  } },
@@ -21,7 +25,6 @@ pub fn main() !void {
     try msg.dump(stream.writer());
 }
 
-const proto = "9p2000";
 
 pub fn parse(allocator: mem.Allocator, in_reader: std.fs.File.Reader) !Message {
     const size = try in_reader.readIntLittle(u32);
@@ -115,19 +118,24 @@ pub const Message = struct {
     tag: u16,
     command: Command,
 
-    pub fn size(self: Message) usize {
-        return 4 + 1 + 2 + self.command.size();
+    pub fn size(self: Message) !usize {
+        std.debug.print("In Message.size\n", .{});
+        defer std.debug.print("Returning from Message.size\n", .{});
+        return 4 + 1 + 2 + try self.command.size();
     }
 
     pub fn dump(self: Message, writer: anytype) !void {
-        const msg_size = self.size();
+        std.debug.print("In Message.dump\n", .{});
+        const msg_size = try self.size();
+        std.debug.print("Message size: {d}\n", .{ msg_size });
         if (msg_size > math.maxInt(u32)) {
             return error.MessageTooLarge;
         }
         try writer.writeIntLittle(u32, @intCast(u32, msg_size));
         try writer.writeByte(@enumToInt(self.command));
         try writer.writeIntLittle(u16, self.tag);
-        try self.dump(writer);
+        std.log.debug("Dumping command\n", .{});
+        try self.command.dump(writer);
     }
 
     pub const CommandEnum = @typeInfo(Command).Union.tag_type.?;
@@ -163,17 +171,20 @@ pub const Message = struct {
         twstat: Twstat = 126,
         rwstat = 127,
 
-        pub fn size(self: Command) usize {
+        pub fn size(self: Command) !usize {
+            std.debug.print("In Command.size\n", .{});
             var counting = io.countingWriter(io.null_writer);
             try self.dump(counting.writer());
             return counting.bytes_written;
         }
 
         pub fn dump(self: Command, writer: anytype) !void {
+            std.debug.print("In Command.dump\n", .{});
             switch (self) {
                 .terror, .rflush, .rclunk, .rremove, .rwstat => {},
-                else => |val| try val.dump(writer),
+                inline else => |val| try val.dump(writer),
             }
+            std.debug.print("Returning from Command.dump\n", .{});
         }
 
         pub const Tversion = struct {
@@ -190,6 +201,7 @@ pub const Message = struct {
             }
 
             pub fn dump(self: Tversion, writer: anytype) !void {
+                std.debug.print("In Tversion.dump\n", .{});
                 try writer.writeIntLittle(u32, self.msize);
                 try dumpWireString(self.version, writer);
             }
@@ -217,107 +229,193 @@ pub const Message = struct {
         pub const Tauth = struct {
             afid: u32,
             uname: []const u8,
-            aname: []const u8
+            aname: []const u8,
+
+            pub fn dump(self: Tauth, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.afid);
+                try dumpWireString(self.uname, writer);
+                try dumpWireString(self.aname, writer);
+            }
         };
 
         pub const Rauth = struct {
-            aqid: Qid
+            aqid: Qid,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tattach = struct {
             fid: u32,
             afid: u32,
             uname: []const u8,
-            aname: []const u8
+            aname: []const u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rattach = struct {
-            qid: Qid
+            qid: Qid,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rerror = struct {
-            ename: []const u8
+            ename: []const u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tflush = struct {
-            oldtag: u16
+            oldtag: u16,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Twalk = struct {
             fid: u32,
             newfid: u32,
             nwname: u16,
-            wname: [][]const u8
+            wname: [][]const u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rwalk = struct {
             nwqid: u16,
-            wqid: []Qid
+            wqid: []Qid,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Topen = struct {
             fid:  u32,
-            mode: u8
+            mode: u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Ropen = struct {
             qid: Qid,
-            iounit: u32
+            iounit: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tcreate = struct {
             fid: u32,
             name: []const u8,
             perm: u32,
-            mode: u8
+            mode: u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rcreate = struct {
             qid: Qid,
             iounit: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tread = struct {
             fid: u32,
             offset: u64,
-            count: u32
+            count: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rread = struct {
             count: u32,
-            data: []const u8
+            data: []const u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Twrite = struct {
             fid: u32,
             offset: u64,
             count: u32,
-            data: []const u8
+            data: []const u8,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rwrite = struct {
-            count: u32
+            count: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tclunk = struct {
             fid: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tremove = struct {
-            fid: u32
+            fid: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Tstat = struct {
-            fid: u32
+            fid: u32,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Rstat = struct {
-            stat: Stat
+            stat: Stat,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
 
         pub const Twstat = struct {
             fid: u32,
-            stat: Stat
+            stat: Stat,
+
+            pub fn dump(_: @This(), _: anytype) !void {
+                return error.NotImplemented;
+            }
         };
     };
 };
