@@ -28,31 +28,34 @@ pub fn parse(allocator: mem.Allocator, in_reader: std.fs.File.Reader) !Message {
     var limited_reader = std.io.limitedReader(in_reader, size - 4);
     const reader = limited_reader.reader();
     const cmd = try reader.readByte();
-    const command = @intToEnum(Message.Command, cmd);
+    const command = @intToEnum(Message.CommandEnum, cmd);
     const tag = try reader.readIntLittle(u16);
 
-    const comm = switch (command) {
-        .Tversion => Message.Command.Tversion{
-            .msize = try reader.readIntLittle(u32),
-            .version = try parseWireString(allocator, reader),
+    const comm: Message.Command = switch (command) {
+        .tversion => .{
+            .tversion = .{
+                .msize = try reader.readIntLittle(u32),
+                .version = try parseWireString(allocator, reader),
+            }
         },
-        .Rversion => Message.Command.Rversion{
-            .msize = try reader.readIntLittle(u32),
-            .version = try parseWireString(allocator, reader),
-        },
+        // .rversion => .rversion{
+        //         .msize = try reader.readIntLittle(u32),
+        //         .version = try parseWireString(allocator, reader),
+        // },
+        else => Message.Command.terror,
     };
 
     return Message{
-        .size = size,
+        .total_size = size,
         .tag = tag,
         .command = comm,
     };
 }
 
 pub fn dump(message: Message, writer: std.fs.File.Writer) !void {
-    _ = writer;
-    _ = message;
-
+    try writer.writeIntLittle(u32, message.size());
+    try writer.writeByte(@enumToInt(message.command));
+    try writer.writeIntLittle(u16, message.tag);
 }
 
 pub fn parseWireString(allocator: mem.Allocator, data: anytype) ![]const u8 {
@@ -115,10 +118,16 @@ const MAXWELEM = 16;
 const NOTAG: u16 = ~0;
 const NOFID: u32 = ~0;
 
-const Message = struct {
-    size: u32,
+pub const Message = struct {
+    total_size: u32,
     tag: u16,
     command: Command,
+
+    pub fn size(self: Message) u32 {
+        return 4 + 1 + 2 + self.command.size();
+    }
+
+    pub const CommandEnum = @typeInfo(Command).Union.tag_type.?;
 
     pub const Command = union(enum(u8)) {
         tversion: Tversion = 100,
@@ -154,11 +163,19 @@ const Message = struct {
         pub const Tversion = struct {
             msize: u32,
             version: []const u8,
+
+            pub fn size(self: Tversion) usize {
+                return 4 + @sizeOf(u16) + self.version.len;
+            }
         };
 
         pub const Rversion = struct {
             msize: u32,
-            version: []const u8
+            version: []const u8,
+
+            pub fn size(self: Rversion) usize {
+                return 4 + @sizeOf(u16) + self.version.len;
+            }
         };
 
         pub const Tauth = struct {
@@ -266,6 +283,13 @@ const Message = struct {
             fid: u32,
             stat: Stat
         };
+
+        pub fn size(self: Command) u32 {
+            return switch (self) {
+                .terror, .rflush, .rclunk, .rremove, .rwstat => 0,
+                else => |val| val.size(),
+            };
+        }
     };
 };
 
@@ -398,16 +422,20 @@ const Stat = struct {
     gid: []const u8,
     muid: []const u8,
 
-    pub fn parse(data: []const u8) !Stat {
-        var buffer = std.io.fixedBufferStream(data);
-        const reader = buffer.reader();
-        _ = reader;
+    // pub fn parse(data: []const u8) !Stat {
+    //     var buffer = std.io.fixedBufferStream(data);
+    //     const reader = buffer.reader();
+    //     _ = reader;
 
-        return Stat{
-            .size
-        };
-    }
+    //     return Stat{
+    //         .size
+    //     };
+    // }
 };
+
+test "ref all" {
+    testing.refAllDeclsRecursive(@This());
+}
 
 // // struct Qid
 // {
