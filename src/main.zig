@@ -1,24 +1,24 @@
 const std = @import("std");
 const io = std.io;
 const mem = std.mem;
+const math = std.math;
 const testing = std.testing;
+const FileReader = std.fs.File.Reader;
+const FileWriter = std.fs.File.Writer;
 
 pub fn main() !void {
-    const addr = "127.0.0.1:564";
-    _ = addr;
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    var allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", 5640);
+    defer stream.close();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // don't forget to flush!
+    const msg = Message{
+        .tag = NOTAG,
+        .command = .{ .tversion = .{ .msize = std.math.maxInt(u32), .version = proto  } },
+    };
+    try msg.dump(stream.writer());
 }
 
 const proto = "9p2000";
@@ -27,40 +27,33 @@ pub fn parse(allocator: mem.Allocator, in_reader: std.fs.File.Reader) !Message {
     const size = try in_reader.readIntLittle(u32);
     var limited_reader = std.io.limitedReader(in_reader, size - 4);
     const reader = limited_reader.reader();
-    const cmd = try reader.readByte();
-    const command = @intToEnum(Message.CommandEnum, cmd);
+
+    const command = @intToEnum(Message.CommandEnum, try reader.readByte());
     const tag = try reader.readIntLittle(u16);
 
     const comm: Message.Command = switch (command) {
-        .tversion => .{
-            .tversion = .{
-                .msize = try reader.readIntLittle(u32),
-                .version = try parseWireString(allocator, reader),
-            }
-        },
-        // .rversion => .rversion{
-        //         .msize = try reader.readIntLittle(u32),
-        //         .version = try parseWireString(allocator, reader),
-        // },
+        .tversion => try Message.Command.Tversion.parse(allocator, reader),
+        .rversion => try Message.Command.Rversion.parse(allocator, reader),
         else => Message.Command.terror,
     };
 
     return Message{
-        .total_size = size,
         .tag = tag,
         .command = comm,
     };
 }
 
-pub fn dump(message: Message, writer: std.fs.File.Writer) !void {
-    try writer.writeIntLittle(u32, message.size());
-    try writer.writeByte(@enumToInt(message.command));
-    try writer.writeIntLittle(u16, message.tag);
+pub fn parseWireString(allocator: mem.Allocator, reader: anytype) ![]const u8 {
+    const size = try reader.readIntLittle(u16);
+    return try reader.readAllAlloc(allocator, size);
 }
 
-pub fn parseWireString(allocator: mem.Allocator, data: anytype) ![]const u8 {
-    const size = try data.readIntLittle(u16);
-    return try data.readAllAlloc(allocator, size);
+pub fn dumpWireString(string: []const u8, writer: anytype) !void {
+    if (string.len > std.math.maxInt(u16)) {
+        return error.StringTooLarge;
+    }
+    try writer.writeIntLittle(u16, @intCast(u16, string.len));
+    try writer.writeAll(string);
 }
 
 // const Command = enum(u8) {
@@ -115,16 +108,26 @@ const Error = enum([]const u8) {
 
 /// max elements for Twalk/Rwalk
 const MAXWELEM = 16;
-const NOTAG: u16 = ~0;
-const NOFID: u32 = ~0;
+const NOTAG = ~@as(u16, 0);
+const NOFID = ~@as(u32, 0);
 
 pub const Message = struct {
-    total_size: u32,
     tag: u16,
     command: Command,
 
-    pub fn size(self: Message) u32 {
+    pub fn size(self: Message) usize {
         return 4 + 1 + 2 + self.command.size();
+    }
+
+    pub fn dump(self: Message, writer: anytype) !void {
+        const msg_size = self.size();
+        if (msg_size > math.maxInt(u32)) {
+            return error.MessageTooLarge;
+        }
+        try writer.writeIntLittle(u32, @intCast(u32, msg_size));
+        try writer.writeByte(@enumToInt(self.command));
+        try writer.writeIntLittle(u16, self.tag);
+        try self.dump(writer);
     }
 
     pub const CommandEnum = @typeInfo(Command).Union.tag_type.?;
@@ -160,12 +163,35 @@ pub const Message = struct {
         twstat: Twstat = 126,
         rwstat = 127,
 
+        pub fn size(self: Command) usize {
+            var counting = io.countingWriter(io.null_writer);
+            try self.dump(counting.writer());
+            return counting.bytes_written;
+        }
+
+        pub fn dump(self: Command, writer: anytype) !void {
+            switch (self) {
+                .terror, .rflush, .rclunk, .rremove, .rwstat => {},
+                else => |val| try val.dump(writer),
+            }
+        }
+
         pub const Tversion = struct {
             msize: u32,
             version: []const u8,
 
-            pub fn size(self: Tversion) usize {
-                return 4 + @sizeOf(u16) + self.version.len;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tversion = .{
+                        .msize = try reader.readIntLittle(u32),
+                        .version = try parseWireString(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tversion, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.msize);
+                try dumpWireString(self.version, writer);
             }
         };
 
@@ -173,8 +199,18 @@ pub const Message = struct {
             msize: u32,
             version: []const u8,
 
-            pub fn size(self: Rversion) usize {
-                return 4 + @sizeOf(u16) + self.version.len;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rversion = .{
+                        .msize = try reader.readIntLittle(u32),
+                        .version = try parseWireString(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rversion, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.msize);
+                try dumpWireString(self.version, writer);
             }
         };
 
@@ -283,13 +319,6 @@ pub const Message = struct {
             fid: u32,
             stat: Stat
         };
-
-        pub fn size(self: Command) u32 {
-            return switch (self) {
-                .terror, .rflush, .rclunk, .rremove, .rwstat => 0,
-                else => |val| val.size(),
-            };
-        }
     };
 };
 
