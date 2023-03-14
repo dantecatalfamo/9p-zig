@@ -42,6 +42,14 @@ pub fn parse(allocator: mem.Allocator, in_reader: anytype) !Message {
     const comm: Message.Command = switch (command) {
         .tversion => try Message.Command.Tversion.parse(allocator, reader),
         .rversion => try Message.Command.Rversion.parse(allocator, reader),
+        .tauth    => try Message.Command.Tauth.parse(allocator, reader),
+        .rauth    => try Message.Command.Rauth.parse(allocator, reader),
+        .tattach  => try Message.Command.Tattach.parse(allocator, reader),
+        .rattach  => try Message.Command.Rattach.parse(allocator, reader),
+        .rerror   => try Message.Command.Rerror.parse(allocator, reader),
+        .tflush   => try Message.Command.Tflush.parse(allocator, reader),
+        .twalk    => try Message.Command.Twalk.parse(allocator, reader),
+        .rwalk    => try Message.Command.Rwalk.parse(allocator, reader),
         else => Message.Command.terror,
     };
 
@@ -266,52 +274,132 @@ pub const Message = struct {
             uname: []const u8,
             aname: []const u8,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tattach = .{
+                        .fid = try reader.readIntLittle(u32),
+                        .afid = try reader.readIntLittle(u32),
+                        .uname = try parseWireString(allocator, reader),
+                        .aname = try parseWireString(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tattach, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try writer.writeIntLittle(u32, self.afid);
+                try dumpWireString(self.uname, writer);
+                try dumpWireString(self.aname, writer);
             }
         };
 
         pub const Rattach = struct {
             qid: Qid,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rattach = .{
+                        .qid = try Qid.parse(reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rattach, writer: anytype) !void {
+                try self.qid.dump(writer);
             }
         };
 
         pub const Rerror = struct {
             ename: []const u8,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rerror = .{
+                        .ename = try parseWireString(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rerror, writer: anytype) !void {
+                try dumpWireString(self.ename, writer);
             }
         };
 
         pub const Tflush = struct {
             oldtag: u16,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tflush = .{
+                        .oldtag = try reader.readIntLittle(u16),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tflush, writer: anytype) !void {
+                try writer.writeIntLittle(u16, self.oldtag);
             }
         };
 
         pub const Twalk = struct {
             fid: u32,
             newfid: u32,
-            nwname: u16,
             wname: [][]const u8,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                var wnames = std.ArrayList([]const u8).init(allocator);
+                // would errdefer if not using arena
+                const fid = try reader.readIntLittle(u32);
+                const newfid = try reader.readIntLittle(u32);
+                const nwname = try reader.readIntLittle(u16);
+                for (0..nwname) |_| {
+                    const name = try parseWireString(allocator, reader);
+                    try wnames.append(name);
+                }
+
+                return .{
+                    .twalk = .{
+                        .fid = fid,
+                        .newfid = newfid,
+                        .wname = try wnames.toOwnedSlice(),
+                    }
+                };
+            }
+
+            pub fn dump(self: Twalk, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try writer.writeIntLittle(u32, self.newfid);
+                try writer.writeIntLittle(u16, @intCast(u16, self.wname.len));
+                for (self.wname) |name| {
+                    try dumpWireString(name, writer);
+                }
             }
         };
 
         pub const Rwalk = struct {
-            nwqid: u16,
             wqid: []Qid,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                var qids = std.ArrayList(Qid).init(allocator);
+
+                const nwqid = try reader.readIntLittle(u16);
+                for (0..nwqid) |_| {
+                    const qid = try Qid.parse(reader);
+                    try qids.append(qid);
+                }
+
+                return .{
+                    .rwalk = .{
+                        .wqid = try qids.toOwnedSlice(),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rwalk, writer: anytype) !void {
+                try writer.writeIntLittle(u16, @intCast(u16, self.wqid.len));
+                for (self.wqid) |qid| {
+                    try qid.dump(writer);
+                }
             }
         };
 
@@ -447,7 +535,7 @@ const Qid = struct {
         };
     }
 
-    pub fn dump(self: Qid, writer: FileWriter) !void {
+    pub fn dump(self: Qid, writer: anytype) !void {
         try writer.writeIntLittle(u64, self.path);
         try writer.writeIntLittle(u32, self.vers);
         try writer.writeByte(@enumToInt(self.qtype));
