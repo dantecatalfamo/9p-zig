@@ -680,6 +680,9 @@ test "ref all" {
     testing.refAllDeclsRecursive(@This());
 }
 
+// twalk
+// https://www.omarpolo.com/post/taking-about-9p-open-and-walk.html
+
 // // struct Qid
 // {
 // 	uvlong	path;  // very long = long long??
