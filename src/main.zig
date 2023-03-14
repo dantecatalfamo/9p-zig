@@ -694,6 +694,8 @@ test "ref all" {
 
 // https://ericvh.github.io/9p-rfc/rfc9p2000.html
 
+// socat TCP4-LISTEN:5640,range=127.0.0.1/32 EXEC:"./u9fs -D -a none -u `whoami`"
+
 // The notation string[s] (using a literal s character) is shorthand
 // for s[2] followed by s bytes of UTF-8 text.
 
