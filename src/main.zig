@@ -564,20 +564,58 @@ const Qid = struct {
     };
 };
 
-const OpenMode = enum(u16) {
-    read = 0,         // open for read
-    write = 1,        // write
-    rdwr = 2,         // read and write
-    exec = 3,         // execute, == read but check execute permission
-    trunc = 16,       // or'ed in (except for exec), truncate file first
-    cexec = 32,       // or'ed in, close on exec
-    rclose = 64,      // or'ed in, remove on close
-    direct = 128,     // or'ed in, direct access
-    nonblock = 256,   // or'ed in, non-blocking call
-    excl = 0x1000,    // or'ed in, exclusive use (create only)
-    lock = 0x2000,    // or'ed in, lock after opening
-    append = 0x4000,  // or'ed in, append only
+const OpenMode = packed struct(u8) {
+    /// open permissions
+    perm: Permissions = .read,
+    _padding: u1 = 0,
+    /// (except for exec), truncate file first
+    trunc: bool = false,
+    /// close on exec
+    cexec: bool = false,
+    /// remove on close
+    rclose: bool = false,
+    /// direct access
+    direct: bool = false,
+
+    const Permissions = enum(u3) {
+        /// open for read
+        read = 0,
+        /// write
+        write = 1,
+        /// read and write
+        rdwr = 2,
+        /// read, write, execute
+        exec = 3
+    };
+
+    const Values = enum(u16) {
+        read = 0,         // open for read
+        write = 1,        // write
+        rdwr = 2,         // read and write
+        exec = 3,         // execute, == read but check execute permission
+        trunc = 16,       // or'ed in (except for exec), truncate file first
+        cexec = 32,       // or'ed in, close on exec
+        rclose = 64,      // or'ed in, remove on close
+        direct = 128,     // or'ed in, direct access
+        nonblock = 256,   // or'ed in, non-blocking call
+        excl = 0x1000,    // or'ed in, exclusive use (create only)
+        lock = 0x2000,    // or'ed in, lock after opening
+        append = 0x4000,  // or'ed in, append only
+    };
 };
+
+test "open mode is correct" {
+    try testing.expectEqual(@enumToInt(OpenMode.Values.read), @bitCast(u8, OpenMode{ .perm = .read  }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.write), @bitCast(u8, OpenMode{ .perm = .write  }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.rdwr), @bitCast(u8, OpenMode{ .perm = .rdwr  }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.exec), @bitCast(u8, OpenMode{ .perm = .exec  }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.read), @bitCast(u8, OpenMode{ }));
+
+    try testing.expectEqual(@enumToInt(OpenMode.Values.trunc), @bitCast(u8, OpenMode{ .trunc = true }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.cexec), @bitCast(u8, OpenMode{ .cexec = true }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.rclose), @bitCast(u8, OpenMode{ .rclose = true }));
+    try testing.expectEqual(@enumToInt(OpenMode.Values.direct), @bitCast(u8, OpenMode{ .direct = true }));
+}
 
 const DirMode = packed struct(u32) {
     /// mode bit for execute permission
