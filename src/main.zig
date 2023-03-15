@@ -31,27 +31,34 @@ pub fn main() !void {
 }
 
 
-pub fn parse(allocator: mem.Allocator, in_reader: anytype) !Message {
-    const size = try in_reader.readIntLittle(u32);
-    var limited_reader = std.io.limitedReader(in_reader, size - 4);
-    const reader = limited_reader.reader();
+pub fn parse(allocator: mem.Allocator, reader: anytype) !Message {
+    var counting = io.countingReader(reader);
+    const size = try counting.reader().readIntLittle(u32);
+    var limited = io.limitedReader(counting.reader(), size - 4);
+    const internal_reader = limited.reader();
 
-    const command = @intToEnum(Message.CommandEnum, try reader.readByte());
-    const tag = try reader.readIntLittle(u16);
+    const command = @intToEnum(Message.CommandEnum, try internal_reader.readByte());
+    const tag = try internal_reader.readIntLittle(u16);
 
     const comm: Message.Command = switch (command) {
-        .tversion => try Message.Command.Tversion.parse(allocator, reader),
-        .rversion => try Message.Command.Rversion.parse(allocator, reader),
-        .tauth    => try Message.Command.Tauth.parse(allocator, reader),
-        .rauth    => try Message.Command.Rauth.parse(allocator, reader),
-        .tattach  => try Message.Command.Tattach.parse(allocator, reader),
-        .rattach  => try Message.Command.Rattach.parse(allocator, reader),
-        .rerror   => try Message.Command.Rerror.parse(allocator, reader),
-        .tflush   => try Message.Command.Tflush.parse(allocator, reader),
-        .twalk    => try Message.Command.Twalk.parse(allocator, reader),
-        .rwalk    => try Message.Command.Rwalk.parse(allocator, reader),
+        .tversion => try Message.Command.Tversion.parse(allocator, internal_reader),
+        .rversion => try Message.Command.Rversion.parse(allocator, internal_reader),
+        .tauth    => try Message.Command.Tauth.parse(allocator, internal_reader),
+        .rauth    => try Message.Command.Rauth.parse(allocator, internal_reader),
+        .tattach  => try Message.Command.Tattach.parse(allocator, internal_reader),
+        .rattach  => try Message.Command.Rattach.parse(allocator, internal_reader),
+        .rerror   => try Message.Command.Rerror.parse(allocator, internal_reader),
+        .tflush   => try Message.Command.Tflush.parse(allocator, internal_reader),
+        .twalk    => try Message.Command.Twalk.parse(allocator, internal_reader),
+        .rwalk    => try Message.Command.Rwalk.parse(allocator, internal_reader),
         else => Message.Command.terror,
     };
+
+    if (counting.bytes_read > size) {
+        return error.MessageTooLarge;
+    } else if (counting.bytes_read < size) {
+        return error.MessageTooSmall;
+    }
 
     return Message{
         .tag = tag,
