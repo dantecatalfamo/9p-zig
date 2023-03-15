@@ -51,6 +51,10 @@ pub fn parse(allocator: mem.Allocator, reader: anytype) !Message {
         .tflush   => try Message.Command.Tflush.parse(allocator, internal_reader),
         .twalk    => try Message.Command.Twalk.parse(allocator, internal_reader),
         .rwalk    => try Message.Command.Rwalk.parse(allocator, internal_reader),
+        .topen    => try Message.Command.Topen.parse(allocator, internal_reader),
+        .ropen    => try Message.Command.Ropen.parse(allocator, internal_reader),
+        .tcreate  => try Message.Command.Tcreate.parse(allocator, internal_reader),
+        .rcreate  => try Message.Command.Rcreate.parse(allocator, internal_reader),
         else => Message.Command.terror,
     };
 
@@ -412,10 +416,23 @@ pub const Message = struct {
 
         pub const Topen = struct {
             fid:  u32,
-            mode: u8,
+            mode: OpenMode,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                const fid = try reader.readIntLittle(u32);
+                const open_mode = @bitCast(OpenMode, try reader.readByte());
+
+                return .{
+                    .topen = .{
+                        .fid = fid,
+                        .mode = open_mode,
+                    }
+                };
+            }
+
+            pub fn dump(self: Topen, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try writer.writeByte(@bitCast(u8, self.mode));
             }
         };
 
@@ -423,19 +440,43 @@ pub const Message = struct {
             qid: Qid,
             iounit: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .ropen = .{
+                        .qid = try Qid.parse(reader),
+                        .iounit = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Ropen, writer: anytype) !void {
+                try self.qid.dump(writer);
+                try writer.writeIntLittle(u32, self.iounit);
             }
         };
 
         pub const Tcreate = struct {
             fid: u32,
             name: []const u8,
-            perm: u32,
-            mode: u8,
+            perm: DirMode,
+            mode: OpenMode,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tcreate = .{
+                        .fid = try reader.readIntLittle(u32),
+                        .name = try parseWireString(allocator, reader),
+                        .perm = @bitCast(DirMode, try reader.readIntLittle(u32)),
+                        .mode = @bitCast(OpenMode, try reader.readByte()),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tcreate, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try dumpWireString(self.name, writer);
+                try writer.writeIntLittle(u32, @bitCast(u32, self.perm));
+                try writer.writeByte(@bitCast(u8, self.mode));
             }
         };
 
@@ -443,8 +484,18 @@ pub const Message = struct {
             qid: Qid,
             iounit: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rcreate = .{
+                        .qid = try Qid.parse(reader),
+                        .iounit = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rcreate, writer: anytype) !void {
+                try self.qid.dump(writer);
+                try writer.writeIntLittle(u32, self.iounit);
             }
         };
 
@@ -727,6 +778,11 @@ test "ref all" {
 
 // twalk
 // https://www.omarpolo.com/post/taking-about-9p-open-and-walk.html
+
+// The iounit field returned by open and create may be zero. If it is
+// not, it is the maximum number of bytes that are guaranteed to be
+// read from or written to the file without breaking the I/O transfer
+// into multiple 9P messages; see read(5).
 
 // // struct Qid
 // {
