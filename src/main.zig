@@ -47,15 +47,28 @@ pub fn parse(allocator: mem.Allocator, reader: anytype) !Message {
         .rauth    => try Message.Command.Rauth.parse(allocator, internal_reader),
         .tattach  => try Message.Command.Tattach.parse(allocator, internal_reader),
         .rattach  => try Message.Command.Rattach.parse(allocator, internal_reader),
+        .terror   => Message.Command.terror,
         .rerror   => try Message.Command.Rerror.parse(allocator, internal_reader),
         .tflush   => try Message.Command.Tflush.parse(allocator, internal_reader),
+        .rflush   => Message.Command.rflush,
         .twalk    => try Message.Command.Twalk.parse(allocator, internal_reader),
         .rwalk    => try Message.Command.Rwalk.parse(allocator, internal_reader),
         .topen    => try Message.Command.Topen.parse(allocator, internal_reader),
         .ropen    => try Message.Command.Ropen.parse(allocator, internal_reader),
         .tcreate  => try Message.Command.Tcreate.parse(allocator, internal_reader),
         .rcreate  => try Message.Command.Rcreate.parse(allocator, internal_reader),
-        else => Message.Command.terror,
+        .tread    => try Message.Command.Tread.parse(allocator, internal_reader),
+        .rread    => try Message.Command.Rread.parse(allocator, internal_reader),
+        .twrite   => try Message.Command.Twrite.parse(allocator, internal_reader),
+        .rwrite   => try Message.Command.Rwrite.parse(allocator, internal_reader),
+        .tclunk   => try Message.Command.Tclunk.parse(allocator, internal_reader),
+        .rclunk   => Message.Command.rclunk,
+        .tremove  => try Message.Command.Tremove.parse(allocator, internal_reader),
+        .rremove  => Message.Command.rremove,
+        .tstat    => try Message.Command.Tstat.parse(allocator, internal_reader),
+        .rstat    => try Message.Command.Rstat.parse(allocator, internal_reader),
+        .twstat   => try Message.Command.Twstat.parse(allocator, internal_reader),
+        .rwstat   => Message.Command.rwstat,
     };
 
     if (counting.bytes_read > size) {
@@ -504,68 +517,166 @@ pub const Message = struct {
             offset: u64,
             count: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tread = .{
+                        .fid = try reader.readIntLittle(u32),
+                        .offset = try reader.readIntLittle(u64),
+                        .count = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tread, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try writer.writeIntLittle(u64, self.offset);
+                try writer.writeIntLittle(u32, self.count);
             }
         };
 
         pub const Rread = struct {
-            count: u32,
             data: []const u8,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            // TODO: Not very efficient, use proper reader/writer
+            // interface for receiving large amounts of data instead
+            // of allocating on heap.
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                const count = try reader.readIntLittle(u32);
+                var data = try allocator.alloc(u8, count);
+                const data_size = try reader.readAll(data);
+                if (data_size != count) {
+                    return error.IncorrectCount;
+                }
+
+                return .{
+                    .rread = .{
+                        .data = data,
+                    }
+                };
+            }
+
+            pub fn dump(self: Rread, writer: anytype) !void {
+                if (self.data.len > math.maxInt(u32)) {
+                    return error.DataTooLong;
+                }
+                try writer.writeIntLittle(u32, @intCast(u32, self.data.len));
+                try writer.writeAll(self.data);
             }
         };
 
         pub const Twrite = struct {
             fid: u32,
             offset: u64,
-            count: u32,
             data: []const u8,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                const fid = try reader.readIntLittle(u32);
+                const offset = try reader.readIntLittle(u64);
+                const count = try reader.readIntLittle(u32);
+                var data = try allocator.alloc(u8, count);
+                const data_size = try reader.readAll(data);
+                if (data_size != count) {
+                    return error.IncorrectCount;
+                }
+
+                return .{
+                    .twrite = .{
+                        .fid = fid,
+                        .offset = offset,
+                        .data = data,
+                    }
+                };
+            }
+
+            pub fn dump(self: Twrite, writer: anytype) !void {
+                if (self.data.len > math.maxInt(u32)) {
+                    return error.DataTooLong;
+                }
+
+                try writer.writeIntLittle(u32, self.fid);
+                try writer.writeIntLittle(u64, self.offset);
+                try writer.writeIntLittle(u32, @intCast(u32, self.data.len));
+                try writer.writeAll(self.data);
             }
         };
 
         pub const Rwrite = struct {
             count: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rwrite = .{
+                        .count = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rwrite, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.count);
             }
         };
 
         pub const Tclunk = struct {
             fid: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tclunk = .{
+                        .fid = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tclunk, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
             }
         };
 
         pub const Tremove = struct {
             fid: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tremove = .{
+                        .fid = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tremove, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
             }
         };
 
         pub const Tstat = struct {
             fid: u32,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .tstat = .{
+                        .fid = try reader.readIntLittle(u32),
+                    }
+                };
+            }
+
+            pub fn dump(self: Tstat, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
             }
         };
 
         pub const Rstat = struct {
             stat: Stat,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .rstat = .{
+                        .stat = try Stat.parse(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Rstat, writer: anytype) !void {
+                try self.stat.dump(writer);
             }
         };
 
@@ -573,8 +684,18 @@ pub const Message = struct {
             fid: u32,
             stat: Stat,
 
-            pub fn dump(_: @This(), _: anytype) !void {
-                return error.NotImplemented;
+            pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
+                return .{
+                    .twstat = .{
+                        .fid = try reader.readIntLittle(u32),
+                        .stat = try Stat.parse(allocator, reader),
+                    }
+                };
+            }
+
+            pub fn dump(self: Twstat, writer: anytype) !void {
+                try writer.writeIntLittle(u32, self.fid);
+                try self.stat.dump(writer);
             }
         };
     };
@@ -748,7 +869,7 @@ test "bitlengths are good" {
 }
 
 const Stat = struct {
-    size: u16,
+    pkt_size: u16,
     stype: u16,
     dev: u32,
     qid: Qid,
@@ -761,15 +882,71 @@ const Stat = struct {
     gid: []const u8,
     muid: []const u8,
 
-    // pub fn parse(data: []const u8) !Stat {
-    //     var buffer = std.io.fixedBufferStream(data);
-    //     const reader = buffer.reader();
-    //     _ = reader;
+    pub fn parse(allocator: mem.Allocator, reader: anytype) !Stat {
+        const pkt_size = try reader.readIntLittle(u16);
+        const stype = try reader.readIntLittle(u16);
+        const dev = try reader.readIntLittle(u32);
+        const qid_type = try reader.readByte();
+        const qid_vers = try reader.readIntLittle(u32);
+        const qid_path = try reader.readIntLittle(u64);
+        const qid = Qid{
+            .qtype = @intToEnum(Qid.QType, qid_type),
+            .vers = qid_vers,
+            .path = qid_path,
+        };
+        const mode = try reader.readIntLittle(u32);
+        const atime = try reader.readIntLittle(u32);
+        const mtime = try reader.readIntLittle(u32);
+        const length = try reader.readIntLittle(u64);
+        const name = try parseWireString(allocator, reader);
+        const uid = try parseWireString(allocator, reader);
+        const gid = try parseWireString(allocator, reader);
+        const muid = try parseWireString(allocator, reader);
+        return .{
+            .pkt_size = pkt_size,
+            .stype = stype,
+            .dev = dev,
+            .qid = qid,
+            .mode = mode,
+            .atime = atime,
+            .mtime = mtime,
+            .length = length,
+            .name = name,
+            .uid = uid,
+            .gid = gid,
+            .muid = muid,
+        };
+    }
 
-    //     return Stat{
-    //         .size
-    //     };
-    // }
+    pub fn dump(self: Stat, writer: anytype) !void {
+        if (self.size() > math.maxInt(u16)) {
+            return error.StatTooLarge;
+        }
+        try writer.writeIntLittle(u16, @intCast(u16, self.size()));
+        try writer.writeIntLittle(u16, self.stype);
+        try writer.writeIntLittle(u32, self.dev);
+        try writer.writeByte(@enumToInt(self.qid.qtype));
+        try writer.writeIntLittle(u32, self.qid.vers);
+        try writer.writeIntLittle(u64, self.qid.path);
+        try writer.writeIntLittle(u32, self.mode);
+        try writer.writeIntLittle(u32, self.atime);
+        try writer.writeIntLittle(u32, self.mtime);
+        try writer.writeIntLittle(u64, self.length);
+        try dumpWireString(self.name, writer);
+        try dumpWireString(self.uid, writer);
+        try dumpWireString(self.gid, writer);
+        try dumpWireString(self.muid, writer);
+    }
+
+    pub fn size(self: Stat) usize {
+        const qid = 1 + 4 + 8;
+        const static = 2 + 2 + 4 + qid + 4 + 4 + 4 + 8;
+        return static +
+            self.name.len + 2 +
+            self.uid.len + 2 +
+            self.gid.len + 2 +
+            self.muid.len + 2;
+    }
 };
 
 test "ref all" {
