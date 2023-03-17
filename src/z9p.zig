@@ -72,13 +72,13 @@ pub fn MessageSender(comptime Writer: type) type {
             try msg.dump(self.writer);
         }
 
-        pub fn tattach(self: Self, tag: u16, fid: u32, afid: u32, uname: []const u8, aname: []const u8) !void {
+        pub fn tattach(self: Self, tag: u16, fid: u32, afid: ?u32, uname: []const u8, aname: []const u8) !void {
             const msg = Message{
                 .tag = tag,
                 .command = .{
                     .tattach = .{
                         .fid = fid,
-                        .afid = afid,
+                        .afid = if (afid) |a| a else NOFID,
                         .uname = uname,
                         .aname = aname,
                     }
