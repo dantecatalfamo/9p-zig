@@ -504,6 +504,14 @@ pub const Message = struct {
     tag: u16,
     command: Command,
 
+    pub fn format(self: Message, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: std.fs.File.Writer) !void {
+        _ = options;
+        _ = fmt;
+        switch (self.command) {
+            inline else => |comm| try writer.print("Message{{ tag: {d}, command: {} }}", .{ self.tag, comm}),
+        }
+    }
+
     pub fn deinit(self: Message) void {
         if (self.arena) |arena| {
             arena.deinit();
