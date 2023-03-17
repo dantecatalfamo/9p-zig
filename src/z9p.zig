@@ -99,6 +99,14 @@ pub fn MessageSender(comptime Writer: type) type {
             try msg.dump(self.writer);
         }
 
+        pub fn terror(self: Self, tag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .terror,
+            };
+            try msg.dump(self.writer);
+        }
+
         pub fn rerror(self: Self, tag: u16, ename: []const u8) !void {
             const msg = Message{
                 .tag = tag,
@@ -119,6 +127,14 @@ pub fn MessageSender(comptime Writer: type) type {
                         .oldtag = oldtag,
                     }
                 }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rflush(self: Self, tag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .rflush,
             };
             try msg.dump(self.writer);
         }
@@ -267,6 +283,14 @@ pub fn MessageSender(comptime Writer: type) type {
             try msg.dump(self.writer);
         }
 
+        pub fn rclunk(self: Self, tag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .rclunk,
+            };
+            try msg.dump(self.writer);
+        }
+
         pub fn tremove(self: Self, tag: u16, fid: u32) !void {
             const msg = Message{
                 .tag = tag,
@@ -275,6 +299,14 @@ pub fn MessageSender(comptime Writer: type) type {
                         .fid = fid,
                     }
                 }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rremove(self: Self, tag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .rremove,
             };
             try msg.dump(self.writer);
         }
@@ -312,6 +344,14 @@ pub fn MessageSender(comptime Writer: type) type {
                         .stat = stat,
                     }
                 }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rwstat(self: Self, tag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .rwstat,
             };
             try msg.dump(self.writer);
         }
