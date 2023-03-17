@@ -18,9 +18,22 @@ pub fn main() !void {
     var sender = z9p.messageSender(stream.writer());
 
     try sender.tversion(std.math.maxInt(u32), z9p.proto);
-
     const rversion = try iter.next();
     defer rversion.deinit();
-
     std.debug.print("rversion: {any}\n", .{ rversion });
+
+    try sender.tattach(0, 0, null, "dante", "/home/dante/dired.sh");
+    const rattach = try iter.next();
+    defer rattach.deinit();
+    std.debug.print("rattach: {any}\n", .{ rattach });
+
+    try sender.tstat(1, 0);
+    const rstat = try iter.next();
+    defer rstat.deinit();
+    std.debug.print("rstat: {any}\n", .{ rstat });
+
+    try sender.tread(1, 0, 0, 1024);
+    const rread = try iter.next();
+    defer rattach.deinit();
+    std.debug.print("rread: {s}\n", .{ rread });
 }

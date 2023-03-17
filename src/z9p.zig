@@ -433,7 +433,12 @@ pub fn MessageReceiver(comptime Reader: type) type {
 
 pub fn parseWireString(allocator: mem.Allocator, reader: anytype) ![]const u8 {
     const size = try reader.readIntLittle(u16);
-    return try reader.readAllAlloc(allocator, size);
+    const buffer = try allocator.alloc(u8, size);
+    const n = try reader.readAll(buffer);
+    if (n != size) {
+        return error.IncorrectStringSize;
+    }
+    return buffer;
 }
 
 pub fn dumpWireString(string: []const u8, writer: anytype) !void {
