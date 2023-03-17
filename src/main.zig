@@ -3,15 +3,18 @@ const io = std.io;
 const mem = std.mem;
 const math = std.math;
 const testing = std.testing;
-const FileReader = std.fs.File.Reader;
-const FileWriter = std.fs.File.Writer;
 
-const proto = "9P2000";
+pub const proto = "9P2000";
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     var allocator = gpa.allocator();
+
+    std.debug.print("Sizeof: {d}\n", .{ @sizeOf(Message) });
+    inline for (std.meta.fields(Message.Command)) |field| {
+        std.debug.print("{s}: {d}\n", .{ field.name, @sizeOf(field.type) });
+    }
 
     const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", 5640);
     defer stream.close();
@@ -25,12 +28,6 @@ pub fn main() !void {
 
     const rversion = try iter.next();
     defer rversion.deinit();
-
-    std.debug.print("Sizeof: {d}\n", .{ @sizeOf(Message) });
-
-    inline for (std.meta.fields(Message.Command)) |field| {
-        std.debug.print("{s}: {d}\n", .{ field.name, @sizeOf(field.type) });
-    }
 
     std.debug.print("rversion: {any}\n", .{ rversion });
 }
