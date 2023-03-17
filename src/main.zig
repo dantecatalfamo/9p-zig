@@ -18,13 +18,10 @@ pub fn main() !void {
 
     std.debug.print("Connected\n", .{});
 
-    const tversion = Message{
-        .tag = NOTAG,
-        .command = .{ .tversion = .{ .msize = std.math.maxInt(u32), .version = proto  } },
-    };
-    try tversion.dump(stream.writer());
+    var iter = messageReceiver(allocator, stream.reader());
+    var sender = messageSender(stream.writer());
 
-    var iter = messaageIterator(allocator, stream.reader());
+    try sender.tversion(std.math.maxInt(u32), proto);
 
     const rversion = try iter.next();
     defer rversion.deinit();
@@ -35,14 +32,326 @@ pub fn main() !void {
         std.debug.print("{s}: {d}\n", .{ field.name, @sizeOf(field.type) });
     }
 
-    std.debug.print("msg2: {any}\n", .{ rversion });
+    std.debug.print("rversion: {any}\n", .{ rversion });
 }
 
-pub fn messaageIterator(allocator: mem.Allocator, reader: anytype) MessageIterator(@TypeOf(reader)) {
-    return MessageIterator(@TypeOf(reader)).init(allocator, reader);
+pub fn messageSender(writer: anytype) MessageSender(@TypeOf(writer)) {
+    return MessageSender(@TypeOf(writer)).init(writer);
 }
 
-pub fn MessageIterator(comptime Reader: type) type {
+pub fn MessageSender(comptime Writer: type) type {
+    return struct {
+        writer: Writer,
+
+        const Self = @This();
+
+        pub fn init(writer: Writer) Self {
+            return .{ .writer = writer };
+        }
+
+        pub fn tversion(self: Self, msize: u32, version: []const u8) !void {
+            const msg = Message{
+                .tag = NOTAG,
+                .command = .{
+                    .tversion = .{
+                        .msize = msize,
+                        .version = version,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rversion(self: Self, msize: u32, version: []const u8) !void {
+            const msg = Message{
+                .tag = NOTAG,
+                .command = .{
+                    .rversion = .{
+                        .msize = msize,
+                        .version = version,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tauth(self: Self, tag: u16, afid: u32, uname: []const u8, aname: []const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tauth = .{
+                        .afid = afid,
+                        .uname = uname,
+                        .aname = aname,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rauth(self: Self, tag: u16, aqid: Qid) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rauth = .{
+                        .aqid = aqid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tattach(self: Self, tag: u16, fid: u32, afid: u32, uname: []const u8, aname: []const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tattach = .{
+                        .fid = fid,
+                        .afid = afid,
+                        .uname = uname,
+                        .aname = aname,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rattach(self: Self, tag: u16, qid: Qid) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rattach = .{
+                        .qid = qid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rerror(self: Self, tag: u16, ename: []const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rerror = .{
+                        .ename = ename,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tflush(self: Self, tag: u16, oldtag: u16) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tflush = .{
+                        .oldtag = oldtag,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn twalk(self: Self, tag: u16, fid: u32, newfid: u32, wname: [][]const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .twalk = .{
+                        .fid = fid,
+                        .newfid = newfid,
+                        .wname = wname,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rwalk(self: Self, tag: u16, wqid: []Qid) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rwalk = .{
+                        .wqid = wqid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn topen(self: Self, tag: u16, fid: u32, mode: OpenMode) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .topen = .{
+                        .fid = fid,
+                        .mode = mode,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn ropen(self: Self, tag: u16, qid: Qid, iounit: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .ropen = .{
+                        .qid = qid,
+                        .iounit = iounit,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tcreate(self: Self, tag: u16, fid: u32, name: []const u8, perm: DirMode, mode: OpenMode) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tcreate = .{
+                        .fid = fid,
+                        .name = name,
+                        .perm = perm,
+                        .mode = mode,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rcreate(self: Self, tag: u16, qid: Qid, iounit: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rcreate = .{
+                        .qid = qid,
+                        .iounit = iounit,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tread(self: Self, tag: u16, fid: u32, offset: u64, count: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tread = .{
+                        .fid = fid,
+                        .offset = offset,
+                        .count = count,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rread(self: Self, tag: u16, data: []const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rread = .{
+                        .data = data,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn twrite(self: Self, tag: u16, fid: u32, offset: u64, data: []const u8) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .twrite = .{
+                        .fid = fid,
+                        .offset = offset,
+                        .data = data,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rwrite(self: Self, tag: u16, count: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rwrite = .{
+                        .count = count,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tclunk(self: Self, tag: u16, fid: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tclunk = .{
+                        .fid = fid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tremove(self: Self, tag: u16, fid: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tremove = .{
+                        .fid = fid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn tstat(self: Self, tag: u16, fid: u32) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .tstat = .{
+                        .fid = fid,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn rstat(self: Self, tag: u16, stat: Stat) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .rstat = .{
+                        .stat = stat,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+
+        pub fn twstat(self: Self, tag: u16, fid: u32, stat: Stat) !void {
+            const msg = Message{
+                .tag = tag,
+                .command = .{
+                    .twstat = .{
+                        .fid = fid,
+                        .stat = stat,
+                    }
+                }
+            };
+            try msg.dump(self.writer);
+        }
+    };
+}
+
+pub fn messageReceiver(allocator: mem.Allocator, reader: anytype) MessageReceiver(@TypeOf(reader)) {
+    return MessageReceiver(@TypeOf(reader)).init(allocator, reader);
+}
+
+pub fn MessageReceiver(comptime Reader: type) type {
     return struct {
         allocator: mem.Allocator,
         reader: Reader,
