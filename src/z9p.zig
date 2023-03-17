@@ -416,10 +416,19 @@ pub fn MessageReceiver(comptime Reader: type) type {
                 .rwstat   => Message.Command.rwstat,
             };
 
+            if (comm == .rerror) {
+                std.log.debug("rerror: {s}", .{ comm.rerror.ename });
+                return error.Rerror;
+            }
+
             if (counting.bytes_read > size) {
                 return error.MessageTooLarge;
             } else if (counting.bytes_read < size) {
-                return error.MessageTooSmall;
+                var poop_buffer: [300]u8 = undefined;
+                const remainder = size - counting.bytes_read;
+                const n = try self.reader.readAll(poop_buffer[0..remainder]);
+                std.log.debug("Trailing poop ({d}): {any}", .{ remainder, poop_buffer[0..n] });
+                // return error.MessageTooSmall;
             }
 
             return Message{
@@ -1236,12 +1245,12 @@ test "bitlengths are good" {
     try testing.expectEqual(@enumToInt(DirMode.Values.dir), @bitCast(u32, DirMode{ .dir = true }));
 }
 
-const Stat = struct {
+pub const Stat = struct {
     pkt_size: u16,
     stype: u16,
     dev: u32,
     qid: Qid,
-    mode: u32,
+    mode: DirMode,
     atime: u32,
     mtime: u32,
     length: u64,
@@ -1249,6 +1258,20 @@ const Stat = struct {
     uid: []const u8,
     gid: []const u8,
     muid: []const u8,
+
+    pub fn format(self: Stat, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: std.fs.File.Writer) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("Stat{{ type: {d}, dev: {d}, qid: {any}, mode: {any}, length: {d}, name: {s}, uid: {s}, gid: {s}, muid: {s} }}",
+                         .{ self.stype, self.dev, self.qid, self.mode, self.length, self.name, self.uid, self.gid, self.muid });
+    }
+
+    pub fn deinit(self: Stat, allocator: mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.uid);
+        allocator.free(self.gid);
+        allocator.free(self.muid);
+    }
 
     pub fn parse(allocator: mem.Allocator, reader: anytype) !Stat {
         const pkt_size = try reader.readIntLittle(u16);
@@ -1262,7 +1285,7 @@ const Stat = struct {
             .vers = qid_vers,
             .path = qid_path,
         };
-        const mode = try reader.readIntLittle(u32);
+        const mode = @bitCast(DirMode, try reader.readIntLittle(u32));
         const atime = try reader.readIntLittle(u32);
         const mtime = try reader.readIntLittle(u32);
         const length = try reader.readIntLittle(u64);
@@ -1296,7 +1319,7 @@ const Stat = struct {
         try writer.writeByte(@enumToInt(self.qid.qtype));
         try writer.writeIntLittle(u32, self.qid.vers);
         try writer.writeIntLittle(u64, self.qid.path);
-        try writer.writeIntLittle(u32, self.mode);
+        try writer.writeIntLittle(u32, @bitCast(u32, self.mode));
         try writer.writeIntLittle(u32, self.atime);
         try writer.writeIntLittle(u32, self.mtime);
         try writer.writeIntLittle(u64, self.length);
@@ -1387,3 +1410,19 @@ test "ref all" {
 
 // size[4] Twstat tag[2] fid[4] stat[n]
 // size[4] Rwstat tag[2]
+
+// 9pfuse
+// <- Tversion tag 65535 msize 8192 version '9P2000'
+// -> Rversion tag 65535 msize 8192 version '9P2000'
+// <- Tattach tag 0 fid 0 afid -1 uname dante aname
+// -> Rattach tag 0 qid (000000000000fd03 1675482522 d)
+// <- Twalk tag 0 fid 0 newfid 1 nwname 0
+// -> Rwalk tag 0 nwqid 0
+// <- Topen tag 0 fid 1 mode 0
+// -> Ropen tag 0 qid (000000000000fd03 1675482522 d) iounit 0
+// <- Tclunk tag 0 fid 1
+// -> Rclunk tag 0
+// <- Twalk tag 0 fid 0 newfid 1 nwname 1 0:.Trash
+// -> Rerror tag 0 ename No such file or directory
+// <- Twalk tag 0 fid 0 newfid 1 nwname 1 0:.Trash-1000
+// -> Rerror tag 0 ename No such file or directory
