@@ -6,6 +6,98 @@ const testing = std.testing;
 
 pub const proto = "9P2000";
 
+pub fn simpleClient(allocator: mem.Allocator, reader: anytype, writer: anytype) SimpleClient(@TypeOf(reader), @TypeOf(writer)) {
+    return SimpleClient(@TypeOf(reader), @TypeOf(writer)).init(allocator, reader, writer);
+}
+
+const FidSpec = struct {
+    fid: u32,
+    qid: Qid,
+    auth: bool = false,
+};
+
+// We shouldn't have more than one or two open at a time, a list is fine.
+const FidSpecList = std.ArrayList(FidSpec);
+
+// Never sends parallel queries, so always reuses tag 0
+pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
+    return struct {
+        allocator: mem.Allocator,
+        receiver: MessageReceiver(Reader),
+        sender: MessageSender(Writer),
+
+        msize: u32,
+        fids: FidSpecList,
+
+        const Self = @This();
+
+        pub fn init(allocator: mem.Allocator, reader: Reader, writer: Writer) Self {
+            return .{
+                .allocator = allocator,
+                .receiver = messageReceiver(allocator, reader),
+                .sender = messageSender(writer),
+                .msize = 0,
+                .fids = FidSpecList.init(allocator),
+            };
+        }
+
+        pub fn getUnusedFid(self: *Self) u32 {
+            var lowest_unused: u32 = 0;
+            // FIXME: Assumes Fids are in order, which they probably
+            // won't be... just a test
+            for (self.fids.items) |fid_spec| {
+                if (fid_spec.fid == lowest_unused) {
+                    lowest_unused += 1;
+                }
+            }
+        }
+
+        // FIXME: Goes with above, idk if this will work it's almost 3am.
+        pub fn setFid(self: *Self, new_fid: FidSpec) !void {
+            for (self.fids.items, 0..) |existing_fid, idx| {
+                if (existing_fid.fid > new_fid.fid) {
+                    return try self.fids.insert(idx, new_fid);
+                }
+            }
+
+            return try self.fids.append(new_fid);
+        }
+
+        pub fn tversion(self: *Self, msize: u32, version: []const u8) !Message {
+            try self.sender.tversion(msize, version);
+            const msg = try self.receiver.next();
+            if (msg.command == .rversion) {
+                self.msize = msg.command.rversion.msize;
+            }
+            return msg;
+        }
+
+        pub fn tauth(self: *Self, uname: []const u8, aname: []const u8) !void {
+            const afid = self.getUnusedFid();
+            try self.sender.tauth(0, afid, uname, aname);
+            const msg = try self.receiver.next();
+            if (msg.command == .rauth) {
+                try self.setFid(.{ .fid = afid,
+                                   .qid = msg.command.rauth.aqid,
+                                   .auth = true });
+            }
+            return msg;
+        }
+
+        // tattach
+        // tflush
+        // twalk
+        // topen
+        // tcreate
+        // tread
+        // twrite
+        // tclunk
+        // tremove
+        // tstat
+        // twstat
+    };
+}
+
 pub fn messageSender(writer: anytype) MessageSender(@TypeOf(writer)) {
     return MessageSender(@TypeOf(writer)).init(writer);
 }
