@@ -18,68 +18,96 @@ pub fn main() !void {
 
     std.debug.print("Connected\n", .{});
 
-    const msg = Message{
+    const tversion = Message{
         .tag = NOTAG,
         .command = .{ .tversion = .{ .msize = std.math.maxInt(u32), .version = proto  } },
     };
-    try msg.dump(stream.writer());
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
+    try tversion.dump(stream.writer());
 
-    const msg2 = try parse(arena.allocator(), stream.reader());
-    std.debug.print("msg2: {any}\n", .{ msg2 });
-}
+    var iter = messaageIterator(allocator, stream.reader());
 
+    const rversion = try iter.next();
+    defer rversion.deinit();
 
-pub fn parse(allocator: mem.Allocator, reader: anytype) !Message {
-    var counting = io.countingReader(reader);
-    const size = try counting.reader().readIntLittle(u32);
-    var limited = io.limitedReader(counting.reader(), size - 4);
-    const internal_reader = limited.reader();
+    std.debug.print("Sizeof: {d}\n", .{ @sizeOf(Message) });
 
-    const command = @intToEnum(Message.CommandEnum, try internal_reader.readByte());
-    const tag = try internal_reader.readIntLittle(u16);
-
-    const comm: Message.Command = switch (command) {
-        .tversion => try Message.Command.Tversion.parse(allocator, internal_reader),
-        .rversion => try Message.Command.Rversion.parse(allocator, internal_reader),
-        .tauth    => try Message.Command.Tauth.parse(allocator, internal_reader),
-        .rauth    => try Message.Command.Rauth.parse(allocator, internal_reader),
-        .tattach  => try Message.Command.Tattach.parse(allocator, internal_reader),
-        .rattach  => try Message.Command.Rattach.parse(allocator, internal_reader),
-        .terror   => Message.Command.terror,
-        .rerror   => try Message.Command.Rerror.parse(allocator, internal_reader),
-        .tflush   => try Message.Command.Tflush.parse(allocator, internal_reader),
-        .rflush   => Message.Command.rflush,
-        .twalk    => try Message.Command.Twalk.parse(allocator, internal_reader),
-        .rwalk    => try Message.Command.Rwalk.parse(allocator, internal_reader),
-        .topen    => try Message.Command.Topen.parse(allocator, internal_reader),
-        .ropen    => try Message.Command.Ropen.parse(allocator, internal_reader),
-        .tcreate  => try Message.Command.Tcreate.parse(allocator, internal_reader),
-        .rcreate  => try Message.Command.Rcreate.parse(allocator, internal_reader),
-        .tread    => try Message.Command.Tread.parse(allocator, internal_reader),
-        .rread    => try Message.Command.Rread.parse(allocator, internal_reader),
-        .twrite   => try Message.Command.Twrite.parse(allocator, internal_reader),
-        .rwrite   => try Message.Command.Rwrite.parse(allocator, internal_reader),
-        .tclunk   => try Message.Command.Tclunk.parse(allocator, internal_reader),
-        .rclunk   => Message.Command.rclunk,
-        .tremove  => try Message.Command.Tremove.parse(allocator, internal_reader),
-        .rremove  => Message.Command.rremove,
-        .tstat    => try Message.Command.Tstat.parse(allocator, internal_reader),
-        .rstat    => try Message.Command.Rstat.parse(allocator, internal_reader),
-        .twstat   => try Message.Command.Twstat.parse(allocator, internal_reader),
-        .rwstat   => Message.Command.rwstat,
-    };
-
-    if (counting.bytes_read > size) {
-        return error.MessageTooLarge;
-    } else if (counting.bytes_read < size) {
-        return error.MessageTooSmall;
+    inline for (std.meta.fields(Message.Command)) |field| {
+        std.debug.print("{s}: {d}\n", .{ field.name, @sizeOf(field.type) });
     }
 
-    return Message{
-        .tag = tag,
-        .command = comm,
+    std.debug.print("msg2: {any}\n", .{ rversion });
+}
+
+pub fn messaageIterator(allocator: mem.Allocator, reader: anytype) MessageIterator(@TypeOf(reader)) {
+    return MessageIterator(@TypeOf(reader)).init(allocator, reader);
+}
+
+pub fn MessageIterator(comptime Reader: type) type {
+    return struct {
+        allocator: mem.Allocator,
+        reader: Reader,
+
+        const Self = @This();
+
+        pub fn init(allocator: mem.Allocator, reader: Reader) Self {
+            return Self{ .allocator = allocator, .reader = reader };
+        }
+
+        pub fn next(self: Self) !Message {
+            var counting = io.countingReader(self.reader);
+            const size = try counting.reader().readIntLittle(u32);
+            var limited = io.limitedReader(counting.reader(), size - 4);
+            const internal_reader = limited.reader();
+
+            const command = @intToEnum(Message.CommandEnum, try internal_reader.readByte());
+            const tag = try internal_reader.readIntLittle(u16);
+
+            var arena = std.heap.ArenaAllocator.init(self.allocator);
+            errdefer arena.deinit();
+
+            const comm: Message.Command = switch (command) {
+                .tversion => try Message.Command.Tversion.parse(arena.allocator(), internal_reader),
+                .rversion => try Message.Command.Rversion.parse(arena.allocator(), internal_reader),
+                .tauth    => try Message.Command.Tauth.parse(arena.allocator(), internal_reader),
+                .rauth    => try Message.Command.Rauth.parse(internal_reader),
+                .tattach  => try Message.Command.Tattach.parse(arena.allocator(), internal_reader),
+                .rattach  => try Message.Command.Rattach.parse(internal_reader),
+                .terror   => Message.Command.terror,
+                .rerror   => try Message.Command.Rerror.parse(arena.allocator(), internal_reader),
+                .tflush   => try Message.Command.Tflush.parse(internal_reader),
+                .rflush   => Message.Command.rflush,
+                .twalk    => try Message.Command.Twalk.parse(arena.allocator(), internal_reader),
+                .rwalk    => try Message.Command.Rwalk.parse(arena.allocator(), internal_reader),
+                .topen    => try Message.Command.Topen.parse(internal_reader),
+                .ropen    => try Message.Command.Ropen.parse(internal_reader),
+                .tcreate  => try Message.Command.Tcreate.parse(arena.allocator(), internal_reader),
+                .rcreate  => try Message.Command.Rcreate.parse(internal_reader),
+                .tread    => try Message.Command.Tread.parse(internal_reader),
+                .rread    => try Message.Command.Rread.parse(arena.allocator(), internal_reader),
+                .twrite   => try Message.Command.Twrite.parse(arena.allocator(), internal_reader),
+                .rwrite   => try Message.Command.Rwrite.parse(internal_reader),
+                .tclunk   => try Message.Command.Tclunk.parse(internal_reader),
+                .rclunk   => Message.Command.rclunk,
+                .tremove  => try Message.Command.Tremove.parse(internal_reader),
+                .rremove  => Message.Command.rremove,
+                .tstat    => try Message.Command.Tstat.parse(internal_reader),
+                .rstat    => try Message.Command.Rstat.parse(arena.allocator(), internal_reader),
+                .twstat   => try Message.Command.Twstat.parse(arena.allocator(), internal_reader),
+                .rwstat   => Message.Command.rwstat,
+            };
+
+            if (counting.bytes_read > size) {
+                return error.MessageTooLarge;
+            } else if (counting.bytes_read < size) {
+                return error.MessageTooSmall;
+            }
+
+            return Message{
+                .arena = arena,
+                .tag = tag,
+                .command = comm,
+            };
+        }
     };
 }
 
@@ -152,8 +180,15 @@ const NOTAG = ~@as(u16, 0);
 const NOFID = ~@as(u32, 0);
 
 pub const Message = struct {
+    arena: ?std.heap.ArenaAllocator = null,
     tag: u16,
     command: Command,
+
+    pub fn deinit(self: Message) void {
+        if (self.arena) |arena| {
+            arena.deinit();
+        }
+    }
 
     pub fn size(self: Message) !usize {
         return 4 + 1 + 2 + try self.command.size();
@@ -279,7 +314,7 @@ pub const Message = struct {
         pub const Rauth = struct {
             aqid: Qid,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .rauth = .{
                         .aqid = try Qid.parse(reader),
@@ -320,7 +355,7 @@ pub const Message = struct {
         pub const Rattach = struct {
             qid: Qid,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .rattach = .{
                         .qid = try Qid.parse(reader),
@@ -352,7 +387,7 @@ pub const Message = struct {
         pub const Tflush = struct {
             oldtag: u16,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .tflush = .{
                         .oldtag = try reader.readIntLittle(u16),
@@ -431,7 +466,7 @@ pub const Message = struct {
             fid:  u32,
             mode: OpenMode,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 const fid = try reader.readIntLittle(u32);
                 const open_mode = @bitCast(OpenMode, try reader.readByte());
 
@@ -453,7 +488,7 @@ pub const Message = struct {
             qid: Qid,
             iounit: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .ropen = .{
                         .qid = try Qid.parse(reader),
@@ -497,7 +532,7 @@ pub const Message = struct {
             qid: Qid,
             iounit: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .rcreate = .{
                         .qid = try Qid.parse(reader),
@@ -517,7 +552,7 @@ pub const Message = struct {
             offset: u64,
             count: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .tread = .{
                         .fid = try reader.readIntLittle(u32),
@@ -603,7 +638,7 @@ pub const Message = struct {
         pub const Rwrite = struct {
             count: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .rwrite = .{
                         .count = try reader.readIntLittle(u32),
@@ -619,7 +654,7 @@ pub const Message = struct {
         pub const Tclunk = struct {
             fid: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .tclunk = .{
                         .fid = try reader.readIntLittle(u32),
@@ -635,7 +670,7 @@ pub const Message = struct {
         pub const Tremove = struct {
             fid: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .tremove = .{
                         .fid = try reader.readIntLittle(u32),
@@ -651,7 +686,7 @@ pub const Message = struct {
         pub const Tstat = struct {
             fid: u32,
 
-            pub fn parse(_: mem.Allocator, reader: anytype) !Command {
+            pub fn parse(reader: anytype) !Command {
                 return .{
                     .tstat = .{
                         .fid = try reader.readIntLittle(u32),
