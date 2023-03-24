@@ -10,15 +10,6 @@ pub fn simpleClient(allocator: mem.Allocator, reader: anytype, writer: anytype) 
     return SimpleClient(@TypeOf(reader), @TypeOf(writer)).init(allocator, reader, writer);
 }
 
-const FidSpec = struct {
-    fid: u32,
-    qid: Qid,
-    auth: bool = false,
-};
-
-// We shouldn't have more than one or two open at a time, a list is fine.
-const FidSpecList = std.ArrayList(FidSpec);
-
 // Never sends parallel queries, so always reuses tag 0
 pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
     return struct {
@@ -27,9 +18,13 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
         sender: MessageSender(Writer),
 
         msize: u32,
-        fids: FidSpecList,
+        handles: HandleList,
 
         const Self = @This();
+
+        // We shouldn't have more than one or two open at a time, a list is fine.
+        const HandleList = std.ArrayList(Handle);
+
 
         pub fn init(allocator: mem.Allocator, reader: Reader, writer: Writer) Self {
             return .{
@@ -37,7 +32,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 .receiver = messageReceiver(allocator, reader),
                 .sender = messageSender(writer),
                 .msize = 0,
-                .fids = FidSpecList.init(allocator),
+                .handles = HandleList.init(allocator),
             };
         }
 
@@ -45,49 +40,130 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             var lowest_unused: u32 = 0;
             // FIXME: Assumes Fids are in order, which they probably
             // won't be... just a test
-            for (self.fids.items) |fid_spec| {
-                if (fid_spec.fid == lowest_unused) {
+            for (self.handles.items) |handle| {
+                if (handle.fid == lowest_unused) {
                     lowest_unused += 1;
                 }
             }
+
+            return lowest_unused;
         }
 
         // FIXME: Goes with above, idk if this will work it's almost 3am.
-        pub fn setFid(self: *Self, new_fid: FidSpec) !void {
-            for (self.fids.items, 0..) |existing_fid, idx| {
-                if (existing_fid.fid > new_fid.fid) {
-                    return try self.fids.insert(idx, new_fid);
+        pub fn setHandle(self: *Self, handle: Handle) !void {
+            for (self.handles.items, 0..) |existing_handle, idx| {
+                if (existing_handle.fid > handle.fid) {
+                    return try self.handles.insert(idx, handle);
                 }
             }
 
-            return try self.fids.append(new_fid);
+            return try self.handles.append(handle);
         }
 
-        pub fn tversion(self: *Self, msize: u32, version: []const u8) !Message {
-            try self.sender.tversion(msize, version);
+        pub fn deinit(self: *Self) void {
+            self.handles.deinit();
+        }
+
+        pub fn connect(self: *Self, msize: u32) !void {
+            try self.sender.tversion(msize, proto);
             const msg = try self.receiver.next();
-            if (msg.command == .rversion) {
-                self.msize = msg.command.rversion.msize;
+            defer msg.deinit();
+            if (msg.command != .rversion) {
+                return error.UnexpectedMessage;
             }
-            return msg;
+            self.msize = msg.command.rversion.msize;
         }
 
-        pub fn tauth(self: *Self, uname: []const u8, aname: []const u8) !void {
+        pub fn auth(self: *Self, uname: []const u8, aname: []const u8) !Handle {
             const afid = self.getUnusedFid();
             try self.sender.tauth(0, afid, uname, aname);
             const msg = try self.receiver.next();
-            if (msg.command == .rauth) {
-                try self.setFid(.{ .fid = afid,
-                                   .qid = msg.command.rauth.aqid,
-                                   .auth = true });
+            defer msg.deinit();
+
+            if (msg.command != .rauth) {
+                return error.UnexpectedMessage;
             }
-            return msg;
+            const handle = Handle{
+                .client = self,
+                .fid = afid,
+                .qid = msg.command.rauth.aqid,
+            };
+            try self.setHandle(handle);
+            return handle;
         }
 
-        // tattach
+        pub fn attach(self: *Self, auth_handle: ?Handle, uname: []const u8, aname: []const u8) !Handle {
+            const fid = self.getUnusedFid();
+            const afid = if (auth_handle) |a| a.fid else null;
+            try self.sender.tattach(0, fid, afid, uname, aname);
+            const msg = try self.receiver.next();
+            defer msg.deinit();
+
+            if (msg.command != .rattach) {
+                return error.UnexpectedMessage;
+            }
+            const handle = Handle{
+                .client = self,
+                .fid = fid,
+                .qid = msg.command.rattach.qid,
+            };
+            try self.setHandle(handle);
+            return handle;
+        }
+
+        const Handle = struct {
+            client: *Self,
+            fid: u32,
+            qid: Qid,
+            iounit: u32 = 0,
+
+            pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+                _ = fmt;
+                _ = options;
+
+                try writer.print("Handle{{ fid: {d}, qid: {any}, iounit: {d} }}", .{ self.fid, self.qid, self.iounit });
+            }
+
+            pub fn walk(self: Handle, path: []const []const u8) !Handle {
+                const new_fid = self.client.getUnusedFid();
+                try self.client.sender.twalk(0, self.fid, new_fid, path);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rwalk) {
+                    return error.UnexpectedMessage;
+                }
+                const qid = if (msg.command.rwalk.wqid.len == 0)
+                    self.qid
+                else
+                    msg.command.rwalk.wqid[msg.command.rwalk.wqid.len-1];
+
+                const handle = Handle{
+                    .client = self.client,
+                    .fid = new_fid,
+                    .qid = qid,
+                };
+                try self.client.setHandle(handle);
+
+                return handle;
+            }
+
+            pub fn open(self: *Handle, mode: OpenMode) !void {
+                try self.client.sender.topen(0, self.fid, mode);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .ropen) {
+                    return error.UnexpectedMessage;
+                }
+
+                self.qid = msg.command.ropen.qid;
+                self.iounit = msg.command.ropen.iounit;
+            }
+        };
+
+
         // tflush
-        // twalk
-        // topen
         // tcreate
         // tread
         // twrite
@@ -231,7 +307,7 @@ pub fn MessageSender(comptime Writer: type) type {
             try msg.dump(self.writer);
         }
 
-        pub fn twalk(self: Self, tag: u16, fid: u32, newfid: u32, wname: [][]const u8) !void {
+        pub fn twalk(self: Self, tag: u16, fid: u32, newfid: u32, wname: []const []const u8) !void {
             const msg = Message{
                 .tag = tag,
                 .command = .{
@@ -610,7 +686,7 @@ pub const Message = struct {
     tag: u16,
     command: Command,
 
-    pub fn format(self: Message, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: std.fs.File.Writer) !void {
+    pub fn format(self: Message, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
         _ = fmt;
         switch (self.command) {
@@ -837,7 +913,7 @@ pub const Message = struct {
         pub const Twalk = struct {
             fid: u32,
             newfid: u32,
-            wname: [][]const u8,
+            wname: []const []const u8,
 
             pub fn parse(allocator: mem.Allocator, reader: anytype) !Command {
                 var wnames = std.ArrayList([]const u8).init(allocator);
@@ -1351,7 +1427,7 @@ pub const Stat = struct {
     gid: []const u8,
     muid: []const u8,
 
-    pub fn format(self: Stat, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: std.fs.File.Writer) !void {
+    pub fn format(self: Stat, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
         try writer.print("Stat{{ type: {d}, dev: {d}, qid: {any}, mode: {any}, length: {d}, name: {s}, uid: {s}, gid: {s}, muid: {s} }}",

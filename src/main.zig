@@ -17,25 +17,39 @@ pub fn main() !void {
     var iter = z9p.messageReceiver(allocator, stream.reader());
     var sender = z9p.messageSender(stream.writer());
 
-    try sender.tversion(std.math.maxInt(u32), z9p.proto);
-    const rversion = try iter.next();
-    defer rversion.deinit();
-    std.debug.print("rversion: {any}\n", .{ rversion });
+    var client = z9p.simpleClient(allocator, stream.reader(), stream.writer());
+    defer client.deinit();
 
-    try sender.tattach(0, 0, null, "dante", "");
-    const rattach = try iter.next();
-    defer rattach.deinit();
-    std.debug.print("rattach: {any}\n", .{ rattach });
+    try client.connect(std.math.maxInt(u32));
 
-    try sender.twalk(0, 0, 1, &.{});
-    const rwalk = try iter.next();
-    defer rwalk.deinit();
-    std.debug.print("rwalk: {any}\n", .{ rwalk });
+    // try sender.tversion(std.math.maxInt(u32), z9p.proto);
+    // const rversion = try iter.next();
+    // defer rversion.deinit();
+    // std.debug.print("rversion: {any}\n", .{ rversion });
 
-    try sender.topen(0, 1, .{});
-    const ropen = try iter.next();
-    defer ropen.deinit();
-    std.debug.print("ropen: {any}\n", .{ ropen });
+    const root = try client.attach(null, "dante", "");
+    std.debug.print("root: {any}\n", .{ root });
+
+    // try sender.tattach(0, 0, null, "dante", "");
+    // const rattach = try iter.next();
+    // defer rattach.deinit();
+    // std.debug.print("rattach: {any}\n", .{ rattach });
+
+    var top_dir = try root.walk(&.{});
+    std.debug.print("top_dir: {any}\n", .{ top_dir });
+
+    // try sender.twalk(0, 0, 1, &.{});
+    // const rwalk = try iter.next();
+    // defer rwalk.deinit();
+    // std.debug.print("rwalk: {any}\n", .{ rwalk });
+
+    try top_dir.open(.{});
+    std.debug.print("opened: {any}\n", .{ top_dir });
+
+    // try sender.topen(0, 1, .{});
+    // const ropen = try iter.next();
+    // defer ropen.deinit();
+    // std.debug.print("ropen: {any}\n", .{ ropen });
 
     try sender.tstat(0, 1);
     const rstat = try iter.next();
