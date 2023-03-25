@@ -51,10 +51,14 @@ pub fn main() !void {
     // defer ropen.deinit();
     // std.debug.print("ropen: {any}\n", .{ ropen });
 
-    try sender.tstat(0, 1);
-    const rstat = try iter.next();
-    defer rstat.deinit();
-    std.debug.print("rstat: {any}\n", .{ rstat });
+    const stat = try top_dir.stat();
+    defer stat.deinit();
+    std.debug.print("stat: {any}\n", .{ stat });
+
+    // try sender.tstat(0, 1);
+    // const rstat = try iter.next();
+    // defer rstat.deinit();
+    // std.debug.print("rstat: {any}\n", .{ rstat });
 
     try sender.tread(0, 1, 0, 1024);
     const rread = try iter.next();
@@ -62,7 +66,7 @@ pub fn main() !void {
     std.debug.print("rread: {s}\n", .{ rread });
 
     var buf = std.io.fixedBufferStream(rread.command.rread.data);
-    const stat = try z9p.Stat.parse(allocator, buf.reader());
-    defer stat.deinit(allocator);
-    std.debug.print("stat: {any}\n", .{ stat });
+    const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
+    defer dir_stat.deinit();
+    std.debug.print("stat: {any}\n", .{ dir_stat });
 }

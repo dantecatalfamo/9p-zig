@@ -160,8 +160,20 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.qid = msg.command.ropen.qid;
                 self.iounit = msg.command.ropen.iounit;
             }
-        };
 
+            /// Caller responsible for deinitializing returned Stat
+            pub fn stat(self: *Handle) !Stat {
+                try self.client.sender.tstat(0, self.fid);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rstat) {
+                    return error.UnexpectedMessage;
+                }
+
+                return msg.command.rstat.stat.clone(self.client.allocator);
+            }
+        };
 
         // tflush
         // tcreate
@@ -1414,6 +1426,7 @@ test "bitlengths are good" {
 }
 
 pub const Stat = struct {
+    allocator: mem.Allocator,
     pkt_size: u16,
     stype: u16,
     dev: u32,
@@ -1434,11 +1447,29 @@ pub const Stat = struct {
                          .{ self.stype, self.dev, self.qid, self.mode, self.length, self.name, self.uid, self.gid, self.muid });
     }
 
-    pub fn deinit(self: Stat, allocator: mem.Allocator) void {
-        allocator.free(self.name);
-        allocator.free(self.uid);
-        allocator.free(self.gid);
-        allocator.free(self.muid);
+    pub fn deinit(self: Stat) void {
+        self.allocator.free(self.name);
+        self.allocator.free(self.uid);
+        self.allocator.free(self.gid);
+        self.allocator.free(self.muid);
+    }
+
+    pub fn clone(self: Stat, allocator: mem.Allocator) !Stat {
+        var new_stat = self;
+        new_stat.allocator = allocator;
+
+        new_stat.name = try allocator.dupe(u8, self.name);
+        errdefer allocator.free(new_stat.name);
+
+        new_stat.uid = try allocator.dupe(u8, self.uid);
+        errdefer allocator.free(new_stat.uid);
+
+        new_stat.gid = try allocator.dupe(u8, self.gid);
+        errdefer allocator.free(new_stat.gid);
+
+        new_stat.muid = try allocator.dupe(u8, self.muid);
+
+        return new_stat;
     }
 
     pub fn parse(allocator: mem.Allocator, reader: anytype) !Stat {
@@ -1462,6 +1493,7 @@ pub const Stat = struct {
         const gid = try parseWireString(allocator, reader);
         const muid = try parseWireString(allocator, reader);
         return .{
+            .allocator = allocator,
             .pkt_size = pkt_size,
             .stype = stype,
             .dev = dev,
