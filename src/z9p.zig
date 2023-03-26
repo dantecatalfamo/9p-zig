@@ -17,6 +17,15 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
         receiver: MessageReceiver(Reader),
         sender: MessageSender(Writer),
 
+        ///  The client suggests a maximum message size, msize, that
+        ///  is the maximum length, in bytes, it will ever generate or
+        ///  expect to receive in a single 9P message. This count
+        ///  includes all 9P protocol data, starting from the size
+        ///  field and extending through the message, but excludes
+        ///  enveloping transport protocols. The server responds with
+        ///  its own maximum, msize, which must be less than or equal
+        ///  to the client's value. Thenceforth, both sides of the
+        ///  connection must honor this limit.
         msize: u32,
         handles: HandleList,
 
@@ -115,7 +124,13 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             client: *Self,
             fid: u32,
             qid: Qid,
+            /// The iounit field returned by open and create may be
+            /// zero. If it is not, it is the maximum number of bytes
+            /// that are guaranteed to be read from or written to the
+            /// file without breaking the I/O transfer into multiple
+            /// 9P messages; see read(5).
             iounit: u32 = 0,
+            pos: u64 = 0,
 
             pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
                 _ = fmt;
@@ -173,6 +188,46 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
 
                 return msg.command.rstat.stat.clone(self.client.allocator);
             }
+
+            pub fn read(self: *Handle, buffer: []u8) !usize {
+                const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 13); // minus rread header data + a mysterious value
+                const iounit_max_data = if (self.iounit != 0) self.iounit else math.maxInt(u32);
+                const read_size_limit = @min(msize_max_data, iounit_max_data);
+                const count = @min(read_size_limit, @intCast(u32, buffer.len));
+
+                std.debug.print("Calling with count: {d}\n", .{count});
+                try self.client.sender.tread(0, self.fid, self.pos, count);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rread) {
+                    return error.UnexpectedMessage;
+                }
+
+                const data_size = msg.command.rread.data.len;
+                mem.copy(u8, buffer, msg.command.rread.data);
+                self.pos += data_size;
+
+                return data_size;
+            }
+
+            pub const ReadError = error{
+                UnexpectedMessage,
+                MessageTooLarge,
+                StringTooLarge,
+                DataTooLong,
+                StatTooLarge,
+                Rerror,
+                EndOfStream,
+                IncorrectStringSize,
+                IncorrectCount
+            } || Reader.Error || Writer.Error || mem.Allocator.Error; // @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
+
+            pub const ClientReader = std.io.Reader(*Handle, ReadError, read);
+
+            pub fn reader(self: *Handle) ClientReader {
+                return .{ .context = self };
+            }
         };
 
         // tflush
@@ -181,7 +236,6 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
         // twrite
         // tclunk
         // tremove
-        // tstat
         // twstat
     };
 }

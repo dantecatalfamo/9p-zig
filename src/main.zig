@@ -14,13 +14,14 @@ pub fn main() !void {
 
     std.debug.print("Connected\n", .{});
 
-    var iter = z9p.messageReceiver(allocator, stream.reader());
-    var sender = z9p.messageSender(stream.writer());
+    // var iter = z9p.messageReceiver(allocator, stream.reader());
+    // var sender = z9p.messageSender(stream.writer());
 
     var client = z9p.simpleClient(allocator, stream.reader(), stream.writer());
     defer client.deinit();
 
     try client.connect(std.math.maxInt(u32));
+    std.debug.print("Client: {any}\n", .{ client });
 
     // try sender.tversion(std.math.maxInt(u32), z9p.proto);
     // const rversion = try iter.next();
@@ -54,19 +55,25 @@ pub fn main() !void {
     const stat = try top_dir.stat();
     defer stat.deinit();
     std.debug.print("stat: {any}\n", .{ stat });
+    std.debug.print("size: {d}\n", .{ stat.length });
 
     // try sender.tstat(0, 1);
     // const rstat = try iter.next();
     // defer rstat.deinit();
     // std.debug.print("rstat: {any}\n", .{ rstat });
 
-    try sender.tread(0, 1, 0, 1024);
-    const rread = try iter.next();
-    defer rread.deinit();
-    std.debug.print("rread: {s}\n", .{ rread });
+    const reader = top_dir.reader();
 
-    var buf = std.io.fixedBufferStream(rread.command.rread.data);
-    const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
-    defer dir_stat.deinit();
-    std.debug.print("stat: {any}\n", .{ dir_stat });
+    const buf = try reader.readAllAlloc(allocator, 99999);
+    std.debug.print("reader: {any}\n", .{ buf });
+
+    // try sender.tread(0, 1, 0, 1024);
+    // const rread = try iter.next();
+    // defer rread.deinit();
+    // std.debug.print("rread: {s}\n", .{ rread });
+
+    // var buf = std.io.fixedBufferStream(rread.command.rread.data);
+    // const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
+    // defer dir_stat.deinit();
+    // std.debug.print("stat: {any}\n", .{ dir_stat });
 }
