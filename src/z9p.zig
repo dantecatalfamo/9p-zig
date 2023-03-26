@@ -228,11 +228,49 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             pub fn reader(self: *Handle) ClientReader {
                 return .{ .context = self };
             }
+
+            pub fn files(self: *Handle) !DirectoryList {
+                self.pos = 0;
+
+                const dir_data = try self.reader().readAllAlloc(self.client.allocator, math.maxInt(u32));
+                defer self.client.allocator.free(dir_data);
+
+                var dir_reader = std.io.fixedBufferStream(dir_data);
+
+                var list = StatList.init(self.client.allocator);
+                while (true) {
+                    const s = Stat.parse(self.client.allocator, dir_reader.reader()) catch |err| switch (err) {
+                        error.EndOfStream => {
+                            break;
+                        },
+                        else => return err,
+                    };
+                    try list.append(s);
+                }
+
+                return DirectoryList{
+                    .allocator = self.client.allocator,
+                    .stats = try list.toOwnedSlice(),
+                };
+            }
+
+            const StatList = std.ArrayList(Stat);
+
+            const DirectoryList = struct {
+                allocator: mem.Allocator,
+                stats: []Stat,
+
+                pub fn deinit(self: DirectoryList) void {
+                    for (self.stats) |dir_stat| {
+                        dir_stat.deinit();
+                    }
+                    self.allocator.free(self.stats);
+                }
+            };
         };
 
         // tflush
         // tcreate
-        // tread
         // twrite
         // tclunk
         // tremove
@@ -1407,7 +1445,20 @@ const DirMode = packed struct(u32) {
     write: bool = false,
     /// mode bit for read permission
     read: bool = false,
-    _padding1: u13 = 0,
+    /// mode bit for execute permission
+    group_exec: bool = false,
+    /// mode bit for write permission
+    group_write: bool = false,
+    /// mode bit for read permission
+    group_read: bool = false,
+    /// mode bit for execute permission
+    world_exec: bool = false,
+    /// mode bit for write permission
+    world_write: bool = false,
+    /// mode bit for read permission
+    world_read: bool = false,
+
+    _padding1: u7 = 0,
     /// mode bit for sticky bit (Unix, 9P2000.u)
     sticky: bool = false,
     _padding2: u1 = 0,

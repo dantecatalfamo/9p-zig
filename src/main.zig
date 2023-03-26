@@ -21,7 +21,6 @@ pub fn main() !void {
     defer client.deinit();
 
     try client.connect(std.math.maxInt(u32));
-    std.debug.print("Client: {any}\n", .{ client });
 
     // try sender.tversion(std.math.maxInt(u32), z9p.proto);
     // const rversion = try iter.next();
@@ -62,15 +61,21 @@ pub fn main() !void {
     // defer rstat.deinit();
     // std.debug.print("rstat: {any}\n", .{ rstat });
 
-    const reader = top_dir.reader();
-
-    const buf = try reader.readAllAlloc(allocator, 99999);
+    const buf = try top_dir.reader().readAllAlloc(allocator, 99999);
+    defer allocator.free(buf);
     std.debug.print("reader: {any}\n", .{ buf });
 
     // try sender.tread(0, 1, 0, 1024);
     // const rread = try iter.next();
     // defer rread.deinit();
     // std.debug.print("rread: {s}\n", .{ rread });
+
+    const files = try top_dir.files();
+    defer files.deinit();
+    for (files.stats) |s| {
+        std.debug.print("{s} {s}\t {o} {d}\n", .{ if (s.mode.dir) "d" else "f", s.name, @bitCast(u32, s.mode), s.length });
+    }
+    // std.debug.print("files: {any}\n", .{ files });
 
     // var buf = std.io.fixedBufferStream(rread.command.rread.data);
     // const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
