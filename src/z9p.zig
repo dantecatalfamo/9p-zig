@@ -1440,11 +1440,11 @@ test "open mode is correct" {
 
 const DirMode = packed struct(u32) {
     /// mode bit for execute permission
-    exec: bool = false,
+    user_exec: bool = false,
     /// mode bit for write permission
-    write: bool = false,
+    user_write: bool = false,
     /// mode bit for read permission
-    read: bool = false,
+    user_read: bool = false,
     /// mode bit for execute permission
     group_exec: bool = false,
     /// mode bit for write permission
@@ -1488,6 +1488,24 @@ const DirMode = packed struct(u32) {
     append: bool = false,
     /// mode bit for directories
     dir: bool = false,
+
+    pub fn format(self: DirMode, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+            if (self.dir) "d" else "-",
+            if (self.world_read) "r" else "-",
+            if (self.world_write) "w" else "-",
+            if (self.world_exec) "x" else "-",
+            if (self.group_read) "r" else "-",
+            if (self.group_write) "w" else "-",
+            if (self.group_exec) "x" else "-",
+            if (self.user_read) "r" else "-",
+            if (self.user_write) "w" else "-",
+            if (self.user_exec) "x" else "-",
+        });
+    }
 
     const Values = enum(u32) {
         dir = 0x80000000,

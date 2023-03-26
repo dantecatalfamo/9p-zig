@@ -73,7 +73,7 @@ pub fn main() !void {
     const files = try top_dir.files();
     defer files.deinit();
     for (files.stats) |s| {
-        std.debug.print("{s} {s}\t {o} {d}\n", .{ if (s.mode.dir) "d" else "f", s.name, @bitCast(u32, s.mode), s.length });
+        std.debug.print("{} {s} {s} {d:7} {s}\n", .{ s.mode, s.uid, s.gid, s.length, s.name });
     }
     // std.debug.print("files: {any}\n", .{ files });
 
