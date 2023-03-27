@@ -87,4 +87,5 @@ pub fn main() !void {
     const tmp = try root.walk(&.{ "tmp" });
     defer tmp.deinit();
     try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
+    try tmp.remove();
 }

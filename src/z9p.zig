@@ -310,6 +310,16 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.iounit = msg.command.rcreate.iounit;
                 self.qid = msg.command.rcreate.qid;
             }
+
+            pub fn remove(self: *Handle) !void {
+                try self.client.sender.tremove(0, self.fid);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rremove) {
+                    return error.UnexpectedMessage;
+                }
+            }
         };
 
         pub fn clunk(self: *Handle) !void {
@@ -318,16 +328,6 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             defer msg.deinit();
 
             if (msg.command != .rclunk) {
-                return error.UnexpectedMessage;
-            }
-        }
-
-        pub fn remove(self: *Handle) !void {
-            try self.client.sender.tremove(0, self.fid);
-            const msg = try self.client.receiver.next();
-            defer msg.deinit();
-
-            if (msg.command != .rremove) {
                 return error.UnexpectedMessage;
             }
         }
