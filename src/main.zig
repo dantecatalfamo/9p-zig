@@ -28,6 +28,7 @@ pub fn main() !void {
     // std.debug.print("rversion: {any}\n", .{ rversion });
 
     var root = try client.attach(null, "dante", "");
+    defer root.deinit();
     std.debug.print("root: {any}\n", .{ root });
 
     // try sender.tattach(0, 0, null, "dante", "");
@@ -36,6 +37,7 @@ pub fn main() !void {
     // std.debug.print("rattach: {any}\n", .{ rattach });
 
     var top_dir = try root.walk(&.{ "" });
+    defer top_dir.deinit();
     std.debug.print("top_dir: {any}\n", .{ top_dir });
 
     // try sender.twalk(0, 0, 1, &.{});
@@ -83,5 +85,6 @@ pub fn main() !void {
     // std.debug.print("stat: {any}\n", .{ dir_stat });
 
     var tmp = try root.walk(&.{ "tmp" });
-    try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
+    defer tmp.deinit();
+    try tmp.create("testing1", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
 }

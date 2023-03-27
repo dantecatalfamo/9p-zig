@@ -32,7 +32,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
         const Self = @This();
 
         // We shouldn't have more than one or two open at a time, a list is fine.
-        const HandleList = std.ArrayList(Handle);
+        const HandleList = std.ArrayList(*Handle);
 
 
         pub fn init(allocator: mem.Allocator, reader: Reader, writer: Writer) Self {
@@ -59,14 +59,23 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
         }
 
         // FIXME: Goes with above, idk if this will work it's almost 3am.
-        pub fn setHandle(self: *Self, handle: Handle) !void {
+        pub fn setHandle(self: *Self, handle: Handle) !*Handle {
+            const new_handle = try self.allocator.create(Handle);
+            errdefer self.allocator.destroy(new_handle);
+            new_handle.* = handle;
+
+            var inserted = false;
             for (self.handles.items, 0..) |existing_handle, idx| {
                 if (existing_handle.fid > handle.fid) {
-                    return try self.handles.insert(idx, handle);
+                    try self.handles.insert(idx, new_handle);
+                    inserted = true;
                 }
             }
 
-            return try self.handles.append(handle);
+            if (!inserted) {
+                try self.handles.append(new_handle);
+            }
+            return new_handle;
         }
 
         pub fn deinit(self: *Self) void {
@@ -83,7 +92,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             self.msize = msg.command.rversion.msize;
         }
 
-        pub fn auth(self: *Self, uname: []const u8, aname: []const u8) !Handle {
+        pub fn auth(self: *Self, uname: []const u8, aname: []const u8) !*Handle {
             const afid = self.getUnusedFid();
             try self.sender.tauth(0, afid, uname, aname);
             const msg = try self.receiver.next();
@@ -97,11 +106,10 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 .fid = afid,
                 .qid = msg.command.rauth.aqid,
             };
-            try self.setHandle(handle);
-            return handle;
+            return try self.setHandle(handle);
         }
 
-        pub fn attach(self: *Self, auth_handle: ?Handle, uname: []const u8, aname: []const u8) !Handle {
+        pub fn attach(self: *Self, auth_handle: ?Handle, uname: []const u8, aname: []const u8) !*Handle {
             const fid = self.getUnusedFid();
             const afid = if (auth_handle) |a| a.fid else null;
             try self.sender.tattach(0, fid, afid, uname, aname);
@@ -116,8 +124,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 .fid = fid,
                 .qid = msg.command.rattach.qid,
             };
-            try self.setHandle(handle);
-            return handle;
+            return try self.setHandle(handle);
         }
 
         pub fn flush(self: *Self) void {
@@ -139,6 +146,10 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             pos: u64 = 0,
             opened: bool = false,
 
+            pub fn deinit(self: *Handle) void {
+                self.client.allocator.destroy(self);
+            }
+
             pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
                 _ = fmt;
                 _ = options;
@@ -146,7 +157,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 try writer.print("Handle{{ fid: {d}, qid: {any}, iounit: {d} }}", .{ self.fid, self.qid, self.iounit });
             }
 
-            pub fn walk(self: Handle, path: []const []const u8) !Handle {
+            pub fn walk(self: Handle, path: []const []const u8) !*Handle {
                 if (self.opened) {
                     return error.FileOpen;
                 }
@@ -168,9 +179,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     .fid = new_fid,
                     .qid = qid,
                 };
-                try self.client.setHandle(handle);
-
-                return handle;
+                return try self.client.setHandle(handle);
             }
 
             /// After a file has been opened, further opens will fail until fid has been clunked.
