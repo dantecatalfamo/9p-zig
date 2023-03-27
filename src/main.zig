@@ -27,7 +27,7 @@ pub fn main() !void {
     // defer rversion.deinit();
     // std.debug.print("rversion: {any}\n", .{ rversion });
 
-    const root = try client.attach(null, "dante", "");
+    var root = try client.attach(null, "dante", "");
     std.debug.print("root: {any}\n", .{ root });
 
     // try sender.tattach(0, 0, null, "dante", "");
@@ -35,7 +35,7 @@ pub fn main() !void {
     // defer rattach.deinit();
     // std.debug.print("rattach: {any}\n", .{ rattach });
 
-    var top_dir = try root.walk(&.{});
+    var top_dir = try root.walk(&.{ "" });
     std.debug.print("top_dir: {any}\n", .{ top_dir });
 
     // try sender.twalk(0, 0, 1, &.{});
@@ -73,7 +73,7 @@ pub fn main() !void {
     const files = try top_dir.files();
     defer files.deinit();
     for (files.stats) |s| {
-        std.debug.print("{} {s:6} {s:6} {d:8} {s}\n", .{ s.mode, s.uid, s.gid, s.length, s.name });
+        std.debug.print("{s} {s:6} {s:6} {d:8} {s}\n", .{ s.mode, s.uid, s.gid, s.length, s.name });
     }
     // std.debug.print("files: {any}\n", .{ files });
 
@@ -81,4 +81,7 @@ pub fn main() !void {
     // const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
     // defer dir_stat.deinit();
     // std.debug.print("stat: {any}\n", .{ dir_stat });
+
+    var tmp = try root.walk(&.{ "tmp" });
+    try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
 }

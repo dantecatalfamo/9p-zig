@@ -120,6 +120,12 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             return handle;
         }
 
+        pub fn flush(self: *Self) void {
+            _ = self;
+            // Since this client only ever has one message in flight
+            // at once, this does nothing
+        }
+
         const Handle = struct {
             client: *Self,
             fid: u32,
@@ -131,6 +137,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             /// 9P messages; see read(5).
             iounit: u32 = 0,
             pos: u64 = 0,
+            opened: bool = false,
 
             pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
                 _ = fmt;
@@ -140,6 +147,9 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             }
 
             pub fn walk(self: Handle, path: []const []const u8) !Handle {
+                if (self.opened) {
+                    return error.FileOpen;
+                }
                 const new_fid = self.client.getUnusedFid();
                 try self.client.sender.twalk(0, self.fid, new_fid, path);
                 const msg = try self.client.receiver.next();
@@ -163,7 +173,12 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 return handle;
             }
 
+            /// After a file has been opened, further opens will fail until fid has been clunked.
             pub fn open(self: *Handle, mode: OpenMode) !void {
+                if (self.opened) {
+                    return error.FileOpen;
+                }
+
                 try self.client.sender.topen(0, self.fid, mode);
                 const msg = try self.client.receiver.next();
                 defer msg.deinit();
@@ -174,6 +189,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
 
                 self.qid = msg.command.ropen.qid;
                 self.iounit = msg.command.ropen.iounit;
+                self.opened = true;
             }
 
             /// Caller responsible for deinitializing returned Stat
@@ -195,7 +211,6 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 const read_size_limit = @min(msize_max_data, iounit_max_data);
                 const count = @min(read_size_limit, @intCast(u32, buffer.len));
 
-                std.debug.print("Calling with count: {d}\n", .{count});
                 try self.client.sender.tread(0, self.fid, self.pos, count);
                 const msg = try self.client.receiver.next();
                 defer msg.deinit();
@@ -267,13 +282,48 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     self.allocator.free(self.stats);
                 }
             };
+
+            pub fn create(self: *Handle, name: []const u8, perm: DirMode, mode: OpenMode) !void {
+                if (self.opened) {
+                    // Creating a file in a directory whose fid you've
+                    // opened fails
+                    return error.FileOpen;
+                }
+
+                try self.client.sender.tcreate(0, self.fid, name, perm, mode);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rcreate) {
+                    return error.UnexpectedMessage;
+                }
+
+                self.iounit = msg.command.rcreate.iounit;
+                self.qid = msg.command.rcreate.qid;
+            }
         };
 
-        // tflush
-        // tcreate
+        pub fn clunk(self: *Handle) !void {
+            try self.client.sender.tclunk(0, self.fid);
+            const msg = try self.client.receiver.next();
+            defer msg.deinit();
+
+            if (msg.command != .rclunk) {
+                return error.UnexpectedMessage;
+            }
+        }
+
+        pub fn remove(self: *Handle) !void {
+            try self.client.sender.tremove(0, self.fid);
+            const msg = try self.client.receiver.next();
+            defer msg.deinit();
+
+            if (msg.command != .rremove) {
+                return error.UnexpectedMessage;
+            }
+        }
+
         // twrite
-        // tclunk
-        // tremove
         // twstat
     };
 }
@@ -1493,7 +1543,11 @@ const DirMode = packed struct(u32) {
         _ = fmt;
         _ = options;
 
-        try writer.print("{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+        try writer.print("{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+            if (self.tmp) "t" else "",
+            if (self.excl) "e" else "",
+            if (self.mount) "m" else "",
+            if (self.auth) "a" else "",
             if (self.dir) "d" else "-",
             if (self.world_read) "r" else "-",
             if (self.world_write) "w" else "-",
