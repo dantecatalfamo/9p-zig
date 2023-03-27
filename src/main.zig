@@ -88,4 +88,7 @@ pub fn main() !void {
     defer tmp.deinit();
     try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
     try tmp.remove();
+
+    try top_dir.clunk();
+    try root.clunk();
 }
