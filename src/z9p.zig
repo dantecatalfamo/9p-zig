@@ -330,9 +330,18 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     return error.UnexpectedMessage;
                 }
             }
+
+            pub fn wstat(self: *Handle, new_stat: Stat) !void {
+                try self.client.sender.twstat(0, self.fid, new_stat);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rwstat) {
+                    return error.UnexpectedMessage;
+                }
+            }
         };
-        // twrite
-        // twstat
+        // write
     };
 }
 
