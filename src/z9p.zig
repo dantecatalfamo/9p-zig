@@ -78,6 +78,23 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             return new_handle;
         }
 
+        pub fn removeHandle(self: *Self, handle: *Handle) !void {
+            var index: ?usize = null;
+
+            for (self.handles.items, 0..) |hndl, idx| {
+                if (hndl == handle) {
+                    index = idx;
+                }
+            }
+
+            if (index) |idx| {
+                _ = self.handles.orderedRemove(idx);
+                return;
+            }
+
+            return error.HandleDoesNotExist;
+        }
+
         pub fn deinit(self: *Self) void {
             self.handles.deinit();
         }
@@ -319,6 +336,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 if (msg.command != .rremove) {
                     return error.UnexpectedMessage;
                 }
+
+                try self.client.removeHandle(self);
             }
 
             pub fn clunk(self: *Handle) !void {
@@ -329,6 +348,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 if (msg.command != .rclunk) {
                     return error.UnexpectedMessage;
                 }
+
+                try self.client.removeHandle(self);
             }
 
             pub fn wstat(self: *Handle, new_stat: Stat) !void {
