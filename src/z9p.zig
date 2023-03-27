@@ -320,18 +320,17 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     return error.UnexpectedMessage;
                 }
             }
-        };
 
-        pub fn clunk(self: *Handle) !void {
-            try self.client.sender.tclunk(0, self.fid);
-            const msg = try self.client.receiver.next();
-            defer msg.deinit();
+            pub fn clunk(self: *Handle) !void {
+                try self.client.sender.tclunk(0, self.fid);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
 
-            if (msg.command != .rclunk) {
-                return error.UnexpectedMessage;
+                if (msg.command != .rclunk) {
+                    return error.UnexpectedMessage;
+                }
             }
-        }
-
+        };
         // twrite
         // twstat
     };
