@@ -14,81 +14,50 @@ pub fn main() !void {
 
     std.debug.print("Connected\n", .{});
 
-    // var iter = z9p.messageReceiver(allocator, stream.reader());
-    // var sender = z9p.messageSender(stream.writer());
-
     var client = z9p.simpleClient(allocator, stream.reader(), stream.writer());
     defer client.deinit();
 
     try client.connect(std.math.maxInt(u32));
 
-    // try sender.tversion(std.math.maxInt(u32), z9p.proto);
-    // const rversion = try iter.next();
-    // defer rversion.deinit();
-    // std.debug.print("rversion: {any}\n", .{ rversion });
-
     const root = try client.attach(null, "dante", "");
     defer root.deinit();
     std.debug.print("root: {any}\n", .{ root });
-
-    // try sender.tattach(0, 0, null, "dante", "");
-    // const rattach = try iter.next();
-    // defer rattach.deinit();
-    // std.debug.print("rattach: {any}\n", .{ rattach });
 
     const top_dir = try root.walk(&.{ "" });
     defer top_dir.deinit();
     std.debug.print("top_dir: {any}\n", .{ top_dir });
 
-    // try sender.twalk(0, 0, 1, &.{});
-    // const rwalk = try iter.next();
-    // defer rwalk.deinit();
-    // std.debug.print("rwalk: {any}\n", .{ rwalk });
-
     try top_dir.open(.{});
     std.debug.print("opened: {any}\n", .{ top_dir });
-
-    // try sender.topen(0, 1, .{});
-    // const ropen = try iter.next();
-    // defer ropen.deinit();
-    // std.debug.print("ropen: {any}\n", .{ ropen });
 
     const stat = try top_dir.stat();
     defer stat.deinit();
     std.debug.print("stat: {any}\n", .{ stat });
     std.debug.print("size: {d}\n", .{ stat.length });
 
-    // try sender.tstat(0, 1);
-    // const rstat = try iter.next();
-    // defer rstat.deinit();
-    // std.debug.print("rstat: {any}\n", .{ rstat });
-
     const buf = try top_dir.reader().readAllAlloc(allocator, 99999);
     defer allocator.free(buf);
     std.debug.print("reader: {any}\n", .{ buf });
-
-    // try sender.tread(0, 1, 0, 1024);
-    // const rread = try iter.next();
-    // defer rread.deinit();
-    // std.debug.print("rread: {s}\n", .{ rread });
 
     const files = try top_dir.files();
     defer files.deinit();
     for (files.stats) |s| {
         std.debug.print("{s} {s:6} {s:6} {d:8} {s}\n", .{ s.mode, s.uid, s.gid, s.length, s.name });
     }
-    // std.debug.print("files: {any}\n", .{ files });
-
-    // var buf = std.io.fixedBufferStream(rread.command.rread.data);
-    // const dir_stat = try z9p.Stat.parse(allocator, buf.reader());
-    // defer dir_stat.deinit();
-    // std.debug.print("stat: {any}\n", .{ dir_stat });
 
     const tmp = try root.walk(&.{ "tmp" });
     defer tmp.deinit();
     try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
     try tmp.remove();
 
+    const passwd = try root.walk(&.{ "etc", "passwd" });
+    defer passwd.deinit();
+    try passwd.open(.{});
+    const pass_data = try passwd.reader().readAllAlloc(allocator, 99999);
+    defer allocator.free(pass_data);
+    std.debug.print("/etc/passwd:\n{s}\n", .{ pass_data });
+
+    try passwd.clunk();
     try top_dir.clunk();
     try root.clunk();
 }
