@@ -24,7 +24,6 @@ pub fn main() !void {
     std.debug.print("root: {any}\n", .{ root });
 
     const top_dir = try root.walk(&.{ "" });
-    defer top_dir.clunk() catch unreachable;
     std.debug.print("top_dir: {any}\n", .{ top_dir });
 
     try top_dir.open(.{});
@@ -44,6 +43,8 @@ pub fn main() !void {
     for (files.stats) |s| {
         std.debug.print("{s} {s:6} {s:6} {d:8} {s}\n", .{ s.mode, s.uid, s.gid, s.length, s.name });
     }
+
+    try top_dir.clunk();
 
     const tmp = try root.walk(&.{ "tmp" });
     try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
