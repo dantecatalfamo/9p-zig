@@ -47,8 +47,6 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
 
         pub fn getUnusedFid(self: *Self) u32 {
             var lowest_unused: u32 = 0;
-            // FIXME: Assumes Fids are in order, which they probably
-            // won't be... just a test
             for (self.handles.items) |handle| {
                 if (handle.fid == lowest_unused) {
                     lowest_unused += 1;
@@ -58,7 +56,6 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             return lowest_unused;
         }
 
-        // FIXME: Goes with above, idk if this will work it's almost 3am.
         pub fn setHandle(self: *Self, handle: Handle) !*Handle {
             const new_handle = try self.allocator.create(Handle);
             errdefer self.allocator.destroy(new_handle);
@@ -99,6 +96,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             self.handles.deinit();
         }
 
+        /// Setup connection to server
         pub fn connect(self: *Self, msize: u32) !void {
             try self.sender.tversion(msize, proto);
             const msg = try self.receiver.next();
@@ -109,6 +107,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             self.msize = msg.command.rversion.msize;
         }
 
+        /// Return an auth handle, protocol agnostic. Pass to .attach
+        /// to connect with authentication.
         pub fn auth(self: *Self, uname: []const u8, aname: []const u8) !*Handle {
             const afid = self.getUnusedFid();
             try self.sender.tauth(0, afid, uname, aname);
@@ -126,6 +126,9 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             return try self.setHandle(handle);
         }
 
+        /// Attach client to server as user (uname) at endpoint
+        /// (aname). For authentication, get a handle from .auth and
+        /// pass in as auth_handle. To attach without auth, pass null.
         pub fn attach(self: *Self, auth_handle: ?Handle, uname: []const u8, aname: []const u8) !*Handle {
             const fid = self.getUnusedFid();
             const afid = if (auth_handle) |a| a.fid else null;
@@ -144,6 +147,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             return try self.setHandle(handle);
         }
 
+        /// Not used in this client
         pub fn flush(self: *Self) void {
             _ = self;
             // Since this client only ever has one message in flight
@@ -174,6 +178,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 try out_writer.print("Handle{{ fid: {d}, qid: {any}, iounit: {d} }}", .{ self.fid, self.qid, self.iounit });
             }
 
+            /// Takes a list of path component strings. Returns a
+            /// handle for the last element.
             pub fn walk(self: Handle, path: []const []const u8) !*Handle {
                 if (self.opened) {
                     return error.FileOpen;
@@ -199,7 +205,9 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 return try self.client.setHandle(handle);
             }
 
-            /// After a file has been opened, further opens will fail until fid has been clunked.
+            /// Open a file for reading or writing. After a file has
+            /// been opened, further opens will fail until fid has
+            /// been clunked.
             pub fn open(self: *Handle, mode: OpenMode) !void {
                 if (self.opened) {
                     return error.FileOpen;
@@ -218,7 +226,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.opened = true;
             }
 
-            /// Caller responsible for deinitializing returned Stat
+            /// Return stats for file associated with handle. Caller
+            /// responsible for deinitializing returned Stat
             pub fn stat(self: *Handle) !Stat {
                 try self.client.sender.tstat(0, self.fid);
                 const msg = try self.client.receiver.next();
@@ -232,6 +241,10 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             }
 
             pub fn read(self: *Handle, buffer: []u8) !usize {
+                if (!self.opened) {
+                    return error.NotOpened;
+                }
+
                 const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 13); // minus rread header data + a mysterious value
                 const iounit_max_data = if (self.iounit != 0) self.iounit else math.maxInt(u32);
                 const read_size_limit = @min(msize_max_data, iounit_max_data);
@@ -266,11 +279,19 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
 
             pub const ClientReader = std.io.Reader(*Handle, ReadError, read);
 
+            /// Return reader interface for file associated with
+            /// handle. Handle must be opened.
             pub fn reader(self: *Handle) ClientReader {
                 return .{ .context = self };
             }
 
+            /// Handle must be a directory and opened. Return a list of all files
+            /// in the directory. Caller responsible for freeing DirectoryList.
             pub fn files(self: *Handle) !DirectoryList {
+                if (!self.opened) {
+                    return error.NotOpened;
+                }
+
                 self.pos = 0;
 
                 const dir_data = try self.reader().readAllAlloc(self.client.allocator, math.maxInt(u32));
@@ -309,6 +330,9 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 }
             };
 
+            /// Handle must be an unopened directory. Create a file
+            /// under the directory with permissions perm and opened
+            /// with mode. Handle becomes the newly created file.
             pub fn create(self: *Handle, name: []const u8, perm: DirMode, mode: OpenMode) !void {
                 if (self.opened) {
                     // Creating a file in a directory whose fid you've
@@ -357,6 +381,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.deinit();
             }
 
+            /// Overwrites the file stat on the server.
             pub fn wstat(self: *Handle, new_stat: Stat) !void {
                 try self.client.sender.twstat(0, self.fid, new_stat);
                 const msg = try self.client.receiver.next();
@@ -368,6 +393,10 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             }
 
             pub fn write(self: *Handle, bytes: []const u8) !usize {
+                if (!self.opened) {
+                    return error.NotOpened;
+                }
+
                 const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 8 + 4 + 1);
                 const iounit_max_data = if (self.iounit != 0) self.iounit else math.maxInt(u32);
                 const write_size_limit = @min(msize_max_data, iounit_max_data);
@@ -389,6 +418,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
 
             pub const ClientWriter = std.io.Writer(*Handle, WriteError, write);
 
+            /// Return writer interface for file associated with
+            /// handle. Handle must be opened.
             pub fn writer(self: *Handle) ClientWriter {
                 return .{ .context = self };
             }
