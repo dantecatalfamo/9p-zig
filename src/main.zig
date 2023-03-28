@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const debug = std.debug;
 const testing = std.testing;
-const z9p = @import("z9p.zig");
+const z9p = @import("9p.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
