@@ -274,7 +274,8 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 Rerror,
                 EndOfStream,
                 IncorrectStringSize,
-                IncorrectCount
+                IncorrectCount,
+                NotOpened
             } || Reader.Error || Writer.Error || mem.Allocator.Error; // @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
 
             pub const ClientReader = std.io.Reader(*Handle, ReadError, read);
