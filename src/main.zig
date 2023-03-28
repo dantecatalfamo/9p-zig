@@ -20,11 +20,11 @@ pub fn main() !void {
     try client.connect(std.math.maxInt(u32));
 
     const root = try client.attach(null, "dante", "");
-    defer root.deinit();
+    defer root.clunk() catch unreachable;
     std.debug.print("root: {any}\n", .{ root });
 
     const top_dir = try root.walk(&.{ "" });
-    defer top_dir.deinit();
+    defer top_dir.clunk() catch unreachable;
     std.debug.print("top_dir: {any}\n", .{ top_dir });
 
     try top_dir.open(.{});
@@ -46,18 +46,18 @@ pub fn main() !void {
     }
 
     const tmp = try root.walk(&.{ "tmp" });
-    defer tmp.deinit();
     try tmp.create("testing", .{ .user_read = true, .user_write = true, .group_read = true, .world_read = true }, .{});
     try tmp.remove();
 
     const passwd = try root.walk(&.{ "etc", "passwd" });
-    defer passwd.deinit();
+    defer passwd.clunk() catch unreachable;
     try passwd.open(.{});
     const pass_data = try passwd.reader().readAllAlloc(allocator, 99999);
     defer allocator.free(pass_data);
     std.debug.print("/etc/passwd:\n{s}\n", .{ pass_data });
 
-    try passwd.clunk();
-    try top_dir.clunk();
-    try root.clunk();
+    const new_file = try root.walk(&.{ "tmp" });
+    defer new_file.clunk() catch unreachable;
+    try new_file.create("new_thing.txt", .{ .user_write = true, .user_read = true }, .{ .perm = .write });
+    try new_file.writer().print("Hello, world!\n", .{});
 }

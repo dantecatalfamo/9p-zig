@@ -167,11 +167,11 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.client.allocator.destroy(self);
             }
 
-            pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            pub fn format(self: Handle, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_writer: anytype) !void {
                 _ = fmt;
                 _ = options;
 
-                try writer.print("Handle{{ fid: {d}, qid: {any}, iounit: {d} }}", .{ self.fid, self.qid, self.iounit });
+                try out_writer.print("Handle{{ fid: {d}, qid: {any}, iounit: {d} }}", .{ self.fid, self.qid, self.iounit });
             }
 
             pub fn walk(self: Handle, path: []const []const u8) !*Handle {
@@ -328,6 +328,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 self.qid = msg.command.rcreate.qid;
             }
 
+            /// Deletes the file associated with the handle, frees the handle
             pub fn remove(self: *Handle) !void {
                 try self.client.sender.tremove(0, self.fid);
                 const msg = try self.client.receiver.next();
@@ -338,8 +339,11 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 }
 
                 try self.client.removeHandle(self);
+                self.deinit();
             }
 
+            /// Tells the server this handle is no longer required,
+            /// frees the handle
             pub fn clunk(self: *Handle) !void {
                 try self.client.sender.tclunk(0, self.fid);
                 const msg = try self.client.receiver.next();
@@ -350,6 +354,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                 }
 
                 try self.client.removeHandle(self);
+                self.deinit();
             }
 
             pub fn wstat(self: *Handle, new_stat: Stat) !void {
@@ -361,8 +366,32 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     return error.UnexpectedMessage;
                 }
             }
+
+            pub fn write(self: *Handle, bytes: []const u8) !usize {
+                const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 8 + 4);
+                const iounit_max_data = if (self.iounit != 0) self.iounit else math.maxInt(u32);
+                const write_size_limit = @min(msize_max_data, iounit_max_data);
+                const count = @min(write_size_limit, @intCast(u32, bytes.len));
+
+                try self.client.sender.twrite(0, self.fid, self.pos, bytes[0..count]);
+                const msg = try self.client.receiver.next();
+                defer msg.deinit();
+
+                if (msg.command != .rwrite) {
+                    return error.UnexpectedMessage;
+                }
+
+                return msg.command.rwrite.count;
+            }
+
+            pub const WriteError = ReadError;
+
+            pub const ClientWriter = std.io.Writer(*Handle, WriteError, write);
+
+            pub fn writer(self: *Handle) ClientWriter {
+                return .{ .context = self };
+            }
         };
-        // write
     };
 }
 
@@ -1528,11 +1557,11 @@ test "open mode is correct" {
 
 const DirMode = packed struct(u32) {
     /// mode bit for execute permission
-    user_exec: bool = false,
+    world_exec: bool = false,
     /// mode bit for write permission
-    user_write: bool = false,
+    world_write: bool = false,
     /// mode bit for read permission
-    user_read: bool = false,
+    world_read: bool = false,
     /// mode bit for execute permission
     group_exec: bool = false,
     /// mode bit for write permission
@@ -1540,11 +1569,11 @@ const DirMode = packed struct(u32) {
     /// mode bit for read permission
     group_read: bool = false,
     /// mode bit for execute permission
-    world_exec: bool = false,
+    user_exec: bool = false,
     /// mode bit for write permission
-    world_write: bool = false,
+    user_write: bool = false,
     /// mode bit for read permission
-    world_read: bool = false,
+    user_read: bool = false,
 
     _padding1: u7 = 0,
     /// mode bit for sticky bit (Unix, 9P2000.u)
@@ -1621,9 +1650,9 @@ const DirMode = packed struct(u32) {
 };
 
 test "bitlengths are good" {
-    try testing.expectEqual(@enumToInt(DirMode.Values.exec), @bitCast(u32, DirMode{ .exec = true }));
-    try testing.expectEqual(@enumToInt(DirMode.Values.write), @bitCast(u32, DirMode{ .write = true }));
-    try testing.expectEqual(@enumToInt(DirMode.Values.read), @bitCast(u32, DirMode{ .read = true }));
+    try testing.expectEqual(@enumToInt(DirMode.Values.exec), @bitCast(u32, DirMode{ .world_exec = true }));
+    try testing.expectEqual(@enumToInt(DirMode.Values.write), @bitCast(u32, DirMode{ .world_write = true }));
+    try testing.expectEqual(@enumToInt(DirMode.Values.read), @bitCast(u32, DirMode{ .world_read = true }));
 
     try testing.expectEqual(@enumToInt(DirMode.Values.sticky), @bitCast(u32, DirMode{ .sticky = true }));
     try testing.expectEqual(@enumToInt(DirMode.Values.setgid), @bitCast(u32, DirMode{ .setgid = true }));
