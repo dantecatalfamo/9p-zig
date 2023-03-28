@@ -368,7 +368,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
             }
 
             pub fn write(self: *Handle, bytes: []const u8) !usize {
-                const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 8 + 4);
+                const msize_max_data = self.client.msize - (4 + 1 + 2 + 4 + 8 + 4 + 1);
                 const iounit_max_data = if (self.iounit != 0) self.iounit else math.maxInt(u32);
                 const write_size_limit = @min(msize_max_data, iounit_max_data);
                 const count = @min(write_size_limit, @intCast(u32, bytes.len));
@@ -381,6 +381,7 @@ pub fn SimpleClient(comptime Reader: type, comptime Writer: type) type {
                     return error.UnexpectedMessage;
                 }
 
+                self.pos += msg.command.rwrite.count;
                 return msg.command.rwrite.count;
             }
 

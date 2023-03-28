@@ -57,7 +57,8 @@ pub fn main() !void {
     std.debug.print("/etc/passwd:\n{s}\n", .{ pass_data });
 
     const new_file = try root.walk(&.{ "tmp" });
-    defer new_file.clunk() catch unreachable;
+    defer new_file.remove() catch unreachable;
     try new_file.create("new_thing.txt", .{ .user_write = true, .user_read = true }, .{ .perm = .write });
-    try new_file.writer().print("Hello, world!\n", .{});
+    const tons_of_data = [_]u8{'a'} ** 10000;
+    try new_file.writer().print(&tons_of_data, .{});
 }
