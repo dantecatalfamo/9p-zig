@@ -1500,8 +1500,13 @@ pub const Message = struct {
     };
 };
 
+/// The qid represents the server's unique identification for the
+/// file being accessed: two files on the same server hierarchy are
+/// the same if and only if their qids are the same.
 const Qid = struct {
+    /// Unique among all files in the hierarchy.
     path: u64,
+    /// The version number for a file; typically, it is incremented every time the file is modified.
     vers: u32,
     qtype: QType,
 
@@ -1509,17 +1514,32 @@ const Qid = struct {
         return Qid{
             .path = try reader.readIntLittle(u64),
             .vers = try reader.readIntLittle(u32),
-            .qtype = @intToEnum(QType, try reader.readByte()),
+            .qtype = @bitCast(QType, try reader.readByte()),
         };
     }
 
     pub fn dump(self: Qid, writer: anytype) !void {
         try writer.writeIntLittle(u64, self.path);
         try writer.writeIntLittle(u32, self.vers);
-        try writer.writeByte(@enumToInt(self.qtype));
+        try writer.writeByte(@bitCast(u8, self.qtype));
     }
 
-    const QType = enum(u8) {
+    /// Type of file. Plain files will have nothing set.
+    pub const QType = packed struct(u8) {
+        _padding: u3,
+        /// type bit for authentication file
+        auth: bool = false,
+        /// type bit for mounted channel
+        mount: bool = false,
+        /// type bit for exclusive use files
+        excl: bool = false,
+        /// type bit for append only files
+        append: bool = false,
+        /// type bit for directories
+        dir: bool = false,
+    };
+
+    const QTypeValues = enum(u8) {
         /// type bit for directories
         dir = 0x80,
         /// type bit for append only files
@@ -1757,7 +1777,7 @@ pub const Stat = struct {
         const qid_vers = try reader.readIntLittle(u32);
         const qid_path = try reader.readIntLittle(u64);
         const qid = Qid{
-            .qtype = @intToEnum(Qid.QType, qid_type),
+            .qtype = @bitCast(Qid.QType, qid_type),
             .vers = qid_vers,
             .path = qid_path,
         };
@@ -1793,7 +1813,7 @@ pub const Stat = struct {
         try writer.writeIntLittle(u16, @intCast(u16, self.size()));
         try writer.writeIntLittle(u16, self.stype);
         try writer.writeIntLittle(u32, self.dev);
-        try writer.writeByte(@enumToInt(self.qid.qtype));
+        try writer.writeByte(@bitCast(u8, self.qid.qtype));
         try writer.writeIntLittle(u32, self.qid.vers);
         try writer.writeIntLittle(u64, self.qid.path);
         try writer.writeIntLittle(u32, @bitCast(u32, self.mode));
