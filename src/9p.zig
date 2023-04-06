@@ -6,6 +6,121 @@ const testing = std.testing;
 
 pub const proto = "9P2000";
 
+pub fn Server(comptime Context: type, comptime Reader: type, comptime Writer: type) type {
+    return struct {
+        allocator: mem.Allocator,
+        context: Context,
+        receiver: MessageReceiver(Reader),
+        sender: MessageSender(Writer),
+
+        const Self = @This();
+
+        pub fn init(allocator: mem.Allocator, context: Context, reader: Reader, writer: Writer) Self {
+            return .{
+                .allocator = allocator,
+                .context = context,
+                .reader = messageReceiver(allocator, reader),
+                .writer = messageSender(writer),
+            };
+        }
+
+        pub fn serve(self: *Self) !void {
+            while (true) {
+                const msg = try self.receiver.next();
+                defer msg.deinit();
+
+                const tag = msg.tag;
+
+                var msg_arena = std.heap.ArenaAllocator.init(self.allocator);
+                errdefer msg_arena.deinit();
+
+                switch (msg.command) {
+                    .tversion => |tversion| {
+                        const reply = try self.context.version(self.context, msg_arena.allocator(), tversion);
+                        try self.sender.rversion(reply.msize, reply.version);
+                    },
+                    .tauth => |tauth| {
+                        const reply = try self.context.auth(msg_arena.allocator(), tauth);
+                        try self.sender.tauth(tag, reply.afid, reply.uname, reply.aname);
+                    },
+                    .tflush => |tflush| {
+                        try self.context.flush(msg_arena.allocator(), tflush);
+                        try self.sender.rflush(tag);
+                    },
+                    .tattach => |tattach| {
+                        const reply = try self.context.attach(msg_arena.allocator(), tattach);
+                        try self.sender.rattach(tag, reply.qid);
+                    },
+                    .twalk => |twalk| {
+                        const reply = try self.contect.walk(msg_arena.allocator(), twalk);
+                        try self.sender.rwalk(tag, reply.wqid);
+                    },
+                    .topen => |topen| {
+                        const reply = try self.context.open(msg_arena.allocator(), topen);
+                        try self.sender.ropen(tag, reply.qid, reply.iounit);
+                    },
+                    .tcreate => |tcreate| {
+                        const reply = try self.context.create(msg_arena.allocator(), tcreate);
+                        try self.sender.rcreate(tag, reply.qid, reply.iounit);
+                    },
+                    .tread => |tread| {
+                        const reply = try self.context.read(msg_arena.allocator(), tread);
+                        try self.sender.rread(tag, reply.data);
+                    },
+                    .twrite => |twrite| {
+                        const reply = try self.context.write(msg_arena.allocator(), twrite);
+                        try self.sender.rwrite(tag, reply.count);
+                    },
+                    .tclunk => |tclunk| {
+                        try self.context.clunk(msg_arena.allocator(), tclunk);
+                        try self.sender.rclunk(tag);
+                    },
+                    .tremove => |tremove| {
+                        try self.context.remove(msg_arena.allocator(), tremove);
+                        try self.sender.rremove(tag);
+                    },
+                    .tstat => |tstat| {
+                        const reply = try self.context.stat(msg_arena.allocator(), tstat);
+                        try self.sender.rstat(tag, reply.stat);
+                    },
+                    .twstat => |twstat| {
+                        const reply = try self.context.wstat(msg_arena.allocator(), twstat);
+                        try self.sender.twstat(tag, reply.fid, reply.stat);
+                    },
+                    else => {
+                        try self.sender.rerror(tag, "9p protocol error");
+                    }
+                }
+
+                msg_arena.deinit();
+            }
+        }
+    };
+}
+
+pub const ExampleServer = struct {
+    pub fn version(self: *ExampleServer, allocator: mem.Allocator, tversion: Message.Command.Tversion) !Message.Command.Rversion {
+        _ = self;
+        _ = allocator;
+        _ = tversion;
+        return .{};
+    }
+
+    pub fn auth(self: *ExampleServer, allocator: mem.Allocator, tauth: Message.Command.Tauth) !Message.Command.Rauth {
+        _ = self;
+        _ = allocator;
+        _ = tauth;
+        return .{};
+    }
+
+    pub fn attach(self: *ExampleServer, allocator: mem.Allocator, tattach: Message.Command.Tattach) !Message.Command.Rattach {
+        _ = tattach;
+        _ = allocator;
+        _ = self;
+        return .{};
+    }
+};
+
 pub fn simpleClient(allocator: mem.Allocator, reader: anytype, writer: anytype) SimpleClient(@TypeOf(reader), @TypeOf(writer)) {
     return SimpleClient(@TypeOf(reader), @TypeOf(writer)).init(allocator, reader, writer);
 }
